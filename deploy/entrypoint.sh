@@ -10,9 +10,9 @@ MODE="${1:-agent}"
 APP_DIR="${APP_DIR:-/app}"
 
 case "${MODE}" in
-  agent|backlot|shell) ;;
+  agent|backlot|api|shell) ;;
   *)
-    echo "openmontage: unknown mode '${MODE}' (expected: agent|backlot|shell)" >&2
+    echo "openmontage: unknown mode '${MODE}' (expected: agent|backlot|api|shell)" >&2
     exit 64
     ;;
 esac
@@ -52,6 +52,10 @@ case "${MODE}" in
     export BACKLOT_HOST="${BACKLOT_HOST:-0.0.0.0}"
     echo "openmontage: starting Backlot on ${BACKLOT_HOST}:${BACKLOT_PORT:-4750}"
     exec python -m backlot serve --port "${BACKLOT_PORT:-4750}"
+    ;;
+  api)
+    echo "openmontage: starting Cabina Studio API on 0.0.0.0:${API_PORT:-3080}"
+    exec uvicorn api.main:app --host 0.0.0.0 --port "${API_PORT:-3080}" --proxy-headers --forwarded-allow-ips='*'
     ;;
   shell)
     exec bash
