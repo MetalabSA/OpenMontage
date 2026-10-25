@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import shutil
 import sqlite3
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -93,7 +94,7 @@ def health(conn: sqlite3.Connection = Depends(get_db)) -> dict[str, Any]:
     return {
         "status": "ok" if db_ok else "degraded",
         "version": "1.0.0",
-        "uptime_seconds": 0,
+        "uptime_seconds": round(time.time() - config.STARTED_AT, 1),
         "worker": {
             "status": "idle" if not active else "busy",
             "queue_depth": int(active),

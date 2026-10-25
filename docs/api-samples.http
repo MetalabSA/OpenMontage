@@ -1,0 +1,145 @@
+# Cabina Studio API v1 — request collection
+# Compatible with VS Code REST Client, IntelliJ HTTP Client and Bruno import.
+# Replace the placeholders before running.
+
+@base = https://studio.metalabia.com/api
+@token = om_REPLACE_WITH_API_TOKEN
+@slug = prueba-f3
+@stage = proposal
+
+### Health (public)
+GET {{base}}/health
+
+### Login (sets oms_session cookie; CSRF token in the response)
+POST {{base}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "admin@metalabia.com",
+  "password": "REPLACE_WITH_ADMIN_PASSWORD"
+}
+
+### Current user
+GET {{base}}/auth/me
+Cookie: oms_session=REPLACE_WITH_COOKIE
+
+### Capability menu
+GET {{base}}/providers
+Authorization: Bearer {{token}}
+
+### Pipelines and gates
+GET {{base}}/pipelines
+Authorization: Bearer {{token}}
+
+### List productions
+GET {{base}}/projects
+Authorization: Bearer {{token}}
+
+### Create production
+POST {{base}}/projects
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "title": "Reel de prueba",
+  "pipeline": "animated-explainer",
+  "platform": "instagram_reels",
+  "brief": {
+    "tone": "cálido y directo",
+    "target_duration_seconds": 30
+  }
+}
+
+### Project detail
+GET {{base}}/projects/{{slug}}
+Authorization: Bearer {{token}}
+
+### Board state (stages, scenes, decisions, cost, renders)
+GET {{base}}/projects/{{slug}}/board
+Authorization: Bearer {{token}}
+
+### Canonical artifact (validated)
+GET {{base}}/projects/{{slug}}/artifacts/brief
+Authorization: Bearer {{token}}
+
+### Checkpoints + history count
+GET {{base}}/projects/{{slug}}/checkpoints
+Authorization: Bearer {{token}}
+
+### Approve a gate (writes human_approved and queues the next stage)
+POST {{base}}/projects/{{slug}}/gates/{{stage}}/approve
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "note": "Aprobado" }
+
+### Reject a gate (requires a note; queues a revision of the same stage)
+POST {{base}}/projects/{{slug}}/gates/{{stage}}/reject
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "note": "Cambiar el enfoque y acortar el hook" }
+
+### Queue a job
+POST {{base}}/jobs
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "project_id": "{{slug}}",
+  "stage": "research",
+  "instruction": "Investigar el tema con 5 fuentes"
+}
+
+### Job detail
+GET {{base}}/jobs/REPLACE_JOB_ID
+Authorization: Bearer {{token}}
+
+### Cancel a job
+POST {{base}}/jobs/REPLACE_JOB_ID/cancel
+Authorization: Bearer {{token}}
+
+### Chat with the production agent
+POST {{base}}/projects/{{slug}}/chat
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "content": "Hacé el guion con tono cálido" }
+
+### Chat history
+GET {{base}}/projects/{{slug}}/chat
+Authorization: Bearer {{token}}
+
+### Assets
+GET {{base}}/projects/{{slug}}/assets
+Authorization: Bearer {{token}}
+
+### Renders
+GET {{base}}/projects/{{slug}}/renders
+Authorization: Bearer {{token}}
+
+### Media (binary; supports Range)
+GET {{base}}/projects/{{slug}}/media/renders/final.mp4
+Authorization: Bearer {{token}}
+
+### Undo last change
+POST {{base}}/projects/{{slug}}/undo
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{}
+
+### Settings (secrets masked)
+GET {{base}}/settings
+Authorization: Bearer {{token}}
+
+### Cost summary
+GET {{base}}/costs
+Authorization: Bearer {{token}}
+
+# --- Server-Sent Events (not supported by most HTTP clients) -----------------
+# curl -N -H "Authorization: Bearer $TOKEN" \
+#   "{{base}}/events?project={{slug}}"
+#
+# curl -N -H "Authorization: Bearer $TOKEN" \
+#   "{{base}}/jobs/JOB_ID/events"

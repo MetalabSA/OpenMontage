@@ -219,12 +219,15 @@ def _finish(
     result: dict | None = None,
     error: str | None = None,
 ) -> None:
+    progress = {"percent": 100, "message": "completado"} if status == "succeeded" else None
+    if progress:
+        conn.execute("UPDATE jobs SET progress_json=? WHERE id=?", (json.dumps(progress), job_id))
     conn.execute(
         "UPDATE jobs SET status=?, finished_at=?, result_json=?, error=? WHERE id=?",
         (status, db.now(), json.dumps(result) if result else None, error, job_id),
     )
     conn.commit()
-    _emit(conn, job_id, "job", {"status": status, "error": error, "result": result})
+    _emit(conn, job_id, "job", {"status": status, "error": error, "result": result, "progress": progress})
 
 
 def cancel(conn: sqlite3.Connection, job_id: str, user_id: str | None = None) -> dict[str, Any]:

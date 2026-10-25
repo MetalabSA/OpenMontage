@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -45,3 +46,5 @@ PROVIDER_ENV = {
     "pixabay": "PIXABAY_API_KEY",
     "unsplash": "UNSPLASH_ACCESS_KEY",
 }
+
+STARTED_AT = time.time()
