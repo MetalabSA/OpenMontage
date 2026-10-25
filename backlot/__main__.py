@@ -82,7 +82,11 @@ def cmd_open(project_id: str | None) -> int:
 def cmd_serve(port: int) -> int:
     import uvicorn
 
-    uvicorn.run("backlot.server:app", host="127.0.0.1", port=port, log_level="warning")
+    # Loopback by default (the secure local case). Container deployments behind a
+    # trusted reverse proxy set BACKLOT_HOST=0.0.0.0 and must also list the public
+    # authority in BACKLOT_ALLOWED_HOSTS.
+    host = os.environ.get("BACKLOT_HOST", "127.0.0.1")
+    uvicorn.run("backlot.server:app", host=host, port=port, log_level="warning")
     return 0
 
 

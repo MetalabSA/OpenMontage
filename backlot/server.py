@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import time
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
@@ -306,8 +307,14 @@ def create_app() -> FastAPI:
         return response
 
     # Loopback binding alone does not prevent browser DNS-rebinding requests.
+    # Extra authorities (e.g. the public host when running in a container behind
+    # a reverse proxy that forwards the original Host) come from
+    # BACKLOT_ALLOWED_HOSTS as a comma-separated list.
+    allowed_hosts = ["127.0.0.1", "localhost"]
+    extra_hosts = os.environ.get("BACKLOT_ALLOWED_HOSTS", "")
+    allowed_hosts.extend(h.strip() for h in extra_hosts.split(",") if h.strip())
     app.add_middleware(
-        TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost"], www_redirect=False,
+        TrustedHostMiddleware, allowed_hosts=allowed_hosts, www_redirect=False,
     )
     return app
 

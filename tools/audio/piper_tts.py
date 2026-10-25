@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import time
@@ -22,6 +23,17 @@ from tools.base_tool import (
 )
 
 
+def default_voices_dir() -> Path:
+    """Directory where Piper voice models (.onnx) live.
+
+    Configurable via PIPER_VOICES_DIR; defaults to ~/.piper/voices.
+    """
+    configured = os.environ.get("PIPER_VOICES_DIR")
+    if configured:
+        return Path(configured).expanduser()
+    return Path.home() / ".piper" / "voices"
+
+
 class PiperTTS(BaseTool):
     name = "piper_tts"
     version = "0.1.0"
@@ -38,8 +50,11 @@ class PiperTTS(BaseTool):
         "Install Piper TTS:\n"
         "  pip install piper-tts\n"
         "Or download from https://github.com/rhasspy/piper/releases\n"
-        "Then download a voice model:\n"
-        "  piper --download-dir ~/.piper/models --model en_US-lessac-medium"
+        "Then download a voice model into the voices directory\n"
+        "  (default ~/.piper/voices, override with PIPER_VOICES_DIR):\n"
+        "  python -m piper.download_voices en_US-lessac-medium\n"
+        "  mv en_US-lessac-medium.onnx* ~/.piper/voices/\n"
+        "Spanish voices: es_AR-daniela-high, es_MX-claude-high, es_ES-sharvard-medium"
     )
     agent_skills = ["text-to-speech"]
 
@@ -120,10 +135,19 @@ class PiperTTS(BaseTool):
         output_path = Path(inputs.get("output_path", "tts_output.wav"))
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
+        model = str(inputs.get("model", "en_US-lessac-medium"))
+        voices_dir = default_voices_dir()
+        model_file = Path(model).expanduser()
+        if not model_file.is_absolute() and model_file.suffix != ".onnx":
+            candidate = voices_dir / f"{model}.onnx"
+            if candidate.exists():
+                model_file = candidate
+
         proc = subprocess.run(
             [
                 "piper",
-                "--model", inputs.get("model", "en_US-lessac-medium"),
+                "--model", str(model_file),
+                "--data-dir", str(voices_dir),
                 "--speaker", str(inputs.get("speaker_id", 0)),
                 "--length-scale", str(inputs.get("length_scale", 1.0)),
                 "--sentence-silence", str(inputs.get("sentence_silence", 0.3)),
@@ -136,7 +160,16 @@ class PiperTTS(BaseTool):
         )
 
         if proc.returncode != 0:
-            return ToolResult(success=False, error=f"Piper failed (exit {proc.returncode}): {proc.stderr}")
+            available = sorted(p.stem for p in voices_dir.glob("*.onnx")) if voices_dir.exists() else []
+            hint = (
+                f" Available voices in {voices_dir}: {', '.join(available)}."
+                if available
+                else f" No voices found in {voices_dir}. Download one with: python -m piper.download_voices {model}"
+            )
+            return ToolResult(
+                success=False,
+                error=f"Piper failed (exit {proc.returncode}): {proc.stderr.strip()}{hint}",
+            )
         if not output_path.exists():
             return ToolResult(success=False, error=f"Piper output file missing: {output_path}")
 
@@ -144,12 +177,12 @@ class PiperTTS(BaseTool):
             success=True,
             data={
                 "provider": self.provider,
-                "model": inputs.get("model", "en_US-lessac-medium"),
+                "model": model,
                 "speaker_id": inputs.get("speaker_id", 0),
                 "text_length": len(inputs["text"]),
                 "output": str(output_path),
                 "format": "wav",
             },
             artifacts=[str(output_path)],
-            model=inputs.get("model", "en_US-lessac-medium"),
+            model=model,
         )
