@@ -88,7 +88,9 @@ RUN cd remotion-composer \
     && npm cache clean --force
 
 # --- Agent harness + HyperFrames warm cache -------------------------------
-RUN npm install -g @deepseek-ai/dsh@0.2.1-rc.2 pnpm \
+# Claude Code CLI is the harness (D8) and can point at either Anthropic or
+# DeepSeek's Anthropic-compatible endpoint. DSH stays available as a fallback.
+RUN npm install -g @anthropic-ai/claude-code @deepseek-ai/dsh@0.2.1-rc.2 pnpm \
     && npx --yes hyperframes --version >/dev/null 2>&1 || true
 
 RUN mkdir -p /app/projects /app/music_library /data/piper /data/dsh
