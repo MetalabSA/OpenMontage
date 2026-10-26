@@ -15,6 +15,17 @@ def _media_url(slug: str, path: str | None) -> str | None:
     return f"/api/projects/{slug}/media/{path.lstrip('/')}"
 
 
+def _tag_text(value: Any) -> str:
+    if isinstance(value, str):
+        return value
+    if isinstance(value, dict):
+        for key in ("shot_size", "camera_movement", "lighting_key", "type", "name", "label"):
+            candidate = value.get(key)
+            if isinstance(candidate, str) and candidate:
+                return candidate
+    return ""
+
+
 def _cost_usd(snapshot: Any) -> float:
     if not isinstance(snapshot, dict):
         return 0.0
@@ -135,7 +146,7 @@ def build(conn, slug: str) -> dict[str, Any]:
                 "cost_usd": (visual or {}).get("cost_usd"),
                 "provider": (visual or {}).get("provider"),
                 "model": (visual or {}).get("model"),
-                "tags": [v for v in (card.get("framing"), card.get("movement"), card.get("shot_language")) if v],
+                "tags": [tag for tag in (_tag_text(card.get("framing")), _tag_text(card.get("movement")), _tag_text(card.get("shot_language"))) if tag],
             }
         )
 
