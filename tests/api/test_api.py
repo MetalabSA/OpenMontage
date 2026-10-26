@@ -232,3 +232,45 @@ def test_pipeline_runs_until_gate_then_waits(client, auth):
             break
         time.sleep(0.1)
     assert script and script[0]["status"] == "awaiting_human"
+
+
+def test_reorder_scenes_and_job_log(client, auth):
+    import uuid
+
+    from api import config
+    from lib.checkpoint import write_checkpoint
+
+    created = client.post(
+        "/api/projects",
+        json={"title": f"Escenas {uuid.uuid4().hex[:6]}", "pipeline": "animated-explainer"},
+        headers=auth,
+    )
+    slug = created.json()["slug"]
+    from conftest import artifact
+
+    write_checkpoint(config.PROJECTS_DIR, slug, "research", "completed", {"research_brief": artifact("research_brief")}, pipeline_type="animated-explainer")
+    write_checkpoint(config.PROJECTS_DIR, slug, "proposal", "completed", {"proposal_packet": artifact("proposal_packet")}, pipeline_type="animated-explainer", human_approved=True)
+    write_checkpoint(config.PROJECTS_DIR, slug, "script", "completed", {"script": artifact("script")}, pipeline_type="animated-explainer", human_approved=True)
+    plan = artifact("scene_plan")
+    plan["scenes"] = [
+        {"id": f"sc_{index:02d}", "type": "animation", "description": f"Escena {index}", "start_seconds": index - 1, "end_seconds": index}
+        for index in (1, 2, 3)
+    ]
+    write_checkpoint(config.PROJECTS_DIR, slug, "scene_plan", "awaiting_human", {"scene_plan": plan}, pipeline_type="animated-explainer", human_approval_required=True, human_approved=False)
+
+    reordered = client.put(
+        f"/api/projects/{slug}/scenes/order",
+        json={"order": ["sc_03", "sc_01", "sc_02"]},
+        headers=auth,
+    )
+    assert reordered.status_code == 200, reordered.text
+    assert [scene["id"] for scene in reordered.json()["scenes"]] == ["sc_03", "sc_01", "sc_02"]
+
+    board = client.get(f"/api/projects/{slug}/board", headers=auth).json()
+    assert [scene["id"] for scene in board["scenes"]] == ["sc_03", "sc_01", "sc_02"]
+
+    job = client.post("/api/jobs", json={"project_id": slug, "stage": "assets"}, headers=auth)
+    assert job.status_code == 202
+    log = client.get(f"/api/jobs/{job.json()['id']}/log", headers=auth)
+    assert log.status_code == 200
+    assert log.json()["data"]

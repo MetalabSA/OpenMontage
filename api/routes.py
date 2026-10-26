@@ -18,7 +18,7 @@ from api import config, db, schemas_io
 from api.deps import COOKIE_NAME, AuthContext, current_auth, get_db, require_admin, require_producer, require_viewer
 from api.errors import ApiError
 from api.events import broker
-from api.services import board, chat, costs, gates, jobs, media, pipelines, projects, providers, settings
+from api.services import board, chat, costs, gates, jobs, media, pipelines, projects, providers, scenes, settings
 from api.services import chat as chat_service
 
 router = APIRouter(prefix="/api")
@@ -65,6 +65,10 @@ class SceneBody(BaseModel):
     prompt: str | None = None
     instructions: str | None = None
     model: str | None = None
+
+
+class SceneOrderBody(BaseModel):
+    order: list[str]
 
 
 class UndoBody(BaseModel):
@@ -307,6 +311,16 @@ def serve_media(slug: str, path: str, _: AuthContext = Depends(require_viewer)) 
     return FileResponse(target)
 
 
+@router.put("/projects/{slug}/scenes/order")
+def reorder_scenes(
+    slug: str,
+    body: SceneOrderBody,
+    ctx: AuthContext = Depends(require_producer),
+    conn: sqlite3.Connection = Depends(get_db),
+) -> dict[str, Any]:
+    return scenes.reorder(conn, slug, body.order, ctx.user["id"])
+
+
 @router.post("/projects/{slug}/scenes/{scene}/regenerate", status_code=202)
 async def regenerate_scene(
     slug: str,
@@ -418,6 +432,27 @@ def cancel_job(
     conn: sqlite3.Connection = Depends(get_db),
 ) -> dict[str, Any]:
     return jobs.cancel(conn, job_id, ctx.user["id"])
+
+
+@router.get("/jobs/{job_id}/log")
+def job_log(
+    job_id: str,
+    _: AuthContext = Depends(require_viewer),
+    conn: sqlite3.Connection = Depends(get_db),
+) -> dict[str, Any]:
+    jobs.get(conn, job_id)
+    rows = conn.execute(
+        "SELECT seq, type, payload_json, created_at FROM job_events WHERE job_id = ? ORDER BY seq",
+        (job_id,),
+    ).fetchall()
+    data = []
+    for row in rows:
+        try:
+            payload = json.loads(row["payload_json"])
+        except json.JSONDecodeError:
+            payload = {}
+        data.append({"seq": row["seq"], "type": row["type"], "payload": payload, "created_at": row["created_at"]})
+    return {"data": data}
 
 
 @router.get("/jobs/{job_id}/events")
