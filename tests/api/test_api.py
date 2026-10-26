@@ -134,7 +134,8 @@ def test_chat_routes_intent_to_job(client, auth, project):
     )
     assert response.status_code == 202, response.text
     body = response.json()
-    assert body["job"]["stage"] == "script"
+    assert body["job"]["stage"] == "research"
+    assert "research" in body["message"]["content"]
     assert body["message"]["role"] == "assistant"
     assert any(action["type"] == "undo" for action in body["message"]["actions"])
 

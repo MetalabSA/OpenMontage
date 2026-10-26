@@ -59,7 +59,7 @@ def derive_status(slug: str, directory: Path, row: dict | None) -> str:
     if statuses.get("compose") == "completed" and rendered:
         return "ready"
     if statuses and all(value == "completed" for value in statuses.values()):
-        return "composing"
+        return "composing" if "compose" in statuses else "in_progress"
     if any(value == "failed" for value in statuses.values()):
         return "failed"
     if statuses:

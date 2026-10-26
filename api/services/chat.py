@@ -10,6 +10,7 @@ from typing import Any
 from api import db
 from api.errors import ApiError
 from api.events import broker
+from api.errors import ApiError
 from api.services import jobs, projects
 
 _STAGE_HINTS = [
@@ -67,6 +68,30 @@ def history(conn: sqlite3.Connection, project_id: str, limit: int = 20) -> dict[
     return {"data": [_public(r) for r in reversed(rows)], "next_cursor": None}
 
 
+STAGE_ORDER = ["research", "proposal", "script", "scene_plan", "assets", "edit", "compose", "publish"]
+
+
+def _statuses(project_id: str) -> dict[str, str]:
+    from api import schemas_io
+
+    directory = projects.project_dir(project_id)
+    statuses: dict[str, str] = {}
+    for stage in STAGE_ORDER:
+        data = schemas_io.read_json(directory / f"checkpoint_{stage}.json", {}) or {}
+        if data.get("status"):
+            statuses[stage] = data["status"]
+    return statuses
+
+
+def _blocker(statuses: dict[str, str], stage: str) -> str | None:
+    if stage not in STAGE_ORDER:
+        return None
+    for previous in STAGE_ORDER[: STAGE_ORDER.index(stage)]:
+        if statuses.get(previous) != "completed":
+            return previous
+    return None
+
+
 def _classify(content: str, scope: dict | None) -> tuple[str | None, str | None]:
     scope = scope or {}
     stage = scope.get("stage")
@@ -109,25 +134,49 @@ async def post(
 
     stage, scene_id = _classify(content, scope)
     job = None
+    actions: list[dict[str, Any]] = []
     if stage:
-        job = await jobs.create(
-            conn,
-            project_id=project_id,
-            stage=stage,
-            scene_id=scene_id,
-            instruction=content.strip(),
-            model=model,
-            user_id=user_id,
-        )
-        reply = (
-            f"Entendido. Encolé el stage `{stage}`"
-            + (f" para `{scene_id}`" if scene_id else "")
-            + ". Te aviso cuando termine."
-        )
-        actions = [
-            {"id": "undo", "type": "undo", "label": "Deshacer", "payload": {"job_id": job["id"]}, "enabled": True},
-            {"id": "cancel", "type": "retry", "label": "Cancelar job", "payload": {"job_id": job["id"]}, "enabled": True},
-        ]
+        requested = stage
+        statuses = _statuses(project_id)
+        blocker = _blocker(statuses, requested)
+        if blocker and statuses.get(blocker) == "awaiting_human":
+            reply = (
+                f"Para ejecutar `{requested}` falta aprobar el gate de `{blocker}`. "
+                "Aprobalo en el board y decime de nuevo."
+            )
+        else:
+            if blocker:
+                stage = blocker
+            try:
+                job = await jobs.create(
+                    conn,
+                    project_id=project_id,
+                    stage=stage,
+                    scene_id=scene_id if stage == requested else None,
+                    instruction=content.strip(),
+                    model=model,
+                    user_id=user_id,
+                )
+            except ApiError as exc:
+                reply = f"No pude encolar `{stage}`: {exc.message}"
+            else:
+                if blocker:
+                    reply = (
+                        f"Para hacer `{requested}` primero falta `{blocker}`. "
+                        f"Arranqué `{blocker}`; cuando termine seguimos (puede requerir un gate)."
+                    )
+                else:
+                    reply = (
+                        f"Entendido. Encolé el stage `{stage}`"
+                        + (f" para `{scene_id}`" if scene_id else "")
+                        + ". Te aviso cuando termine."
+                    )
+                actions = [
+                    {"id": "undo", "type": "undo", "label": "Deshacer", "payload": {"job_id": job["id"]}, "enabled": True},
+                    {"id": "cancel", "type": "retry", "label": "Cancelar job", "payload": {"job_id": job["id"]}, "enabled": True},
+                ]
+        if not reply:
+            reply = "No pude procesar el pedido."
     else:
         reply = (
             "No hace falta un job para este mensaje. Puedo ejecutar stages del pipeline, "
