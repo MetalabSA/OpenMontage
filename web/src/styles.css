@@ -298,3 +298,6 @@ p { margin: 0; line-height: 1.55; }
 .issued { border: 1px solid #4d3d1c; background: #2a2113; border-radius: 6px; padding: 12px; display: grid; gap: 8px; }
 .issued pre { margin: 0; font-family: var(--mono); font-size: 11px; color: var(--warn); overflow-x: auto; }
 @media (max-width: 900px) { .user-form { grid-template-columns: 1fr; } }
+
+.settings-card .tr { grid-template-columns: 1.6fr 1fr .7fr .8fr auto; }
+.settings-card .tr .input { min-width: 90px; padding: 5px 8px; }
