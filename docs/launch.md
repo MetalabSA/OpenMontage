@@ -1,6 +1,6 @@
 # Lanzamiento — Cabina Studio
 
-> Estado: **beta interna con GO**. Build `5febaeb`. Fecha: 2026-10-26.
+> Estado: **beta interna con GO firmado**. Build `c672f92` + fixes F10. Fecha: 2026-10-26.
 
 ## 1. Superficie publicada
 
@@ -28,13 +28,26 @@ Infra: EasyPanel proyecto `ollama`; volúmenes `/opt/openmontage` → `/state`; 
 | 24 tests API + 2224 suite | ✅ (3 fallos locales de FFmpeg, no productivos) |
 | E2E real con MP4 45 s | ✅ |
 | Documentación (uso, seguridad, backups, operación) | ✅ |
-| **Webhook de alertas real** | ⏳ conectar Slack/Discord y probar |
-| **Rotar claves** (EasyPanel/DeepSeek) | ⏳ manual, ver `security.md` |
+| **Webhook de alertas real** | ⏳ conectar Slack/Discord y probar (config actual: deshabilitado) |
+| **Rotar claves** (EasyPanel/DeepSeek) | ⏳ manual; **contraseña admin rotada en F10** |
 | **Ensayo de restore/rollback cronometrado** | ⏳ ventana de mantenimiento |
 | Monitoreo externo (uptime) | ⏳ configurar en el proveedor |
 | 2FA / WAF / ACL por proyecto | ❌ F9.2 |
 
-## 3. Criterio GO / NO-GO
+## 3. Verificación de lanzamiento (2026-10-26)
+
+| Check | Resultado |
+|---|---|
+| `GET /api/health` | ok · worker idle · disco 66,6 % (32 GB libres) |
+| Board | HTTP 200 con Basic Auth |
+| Proyectos | 1 (`modelo-real-2`, esperando gate de publish) |
+| Usuarios | 1 admin; contraseña rotada y guardada en `.secrets/studio-api.txt` |
+| Backups | 1 verificado (0,97 MB, 6 proyectos al momento); scheduler diario 03:00 UTC |
+| Alertas | deshabilitadas, webhook vacío (pendiente manual) |
+| Tests | 24 API · 2224 suite (3 fallos locales de FFmpeg) |
+| E2E | MP4 45,056 s 1080x1920 con audio |
+
+## 4. Criterio GO / NO-GO
 
 **GO beta interna** si:
 - ✅ health OK y SPA carga;
@@ -48,7 +61,7 @@ Infra: EasyPanel proyecto `ollama`; volúmenes `/opt/openmontage` → `/state`; 
 - ejecutar un restore real y un rollback cronometrado;
 - definir soporte/on-call y política de datos.
 
-## 4. Primeros 7 días
+## 5. Primeros 7 días
 
 1. Crear usuarios reales (producer/viewer) y desactivar el token estático compartido.
 2. Configurar webhook de alertas y probar un job fallido.
@@ -57,8 +70,10 @@ Infra: EasyPanel proyecto `ollama`; volúmenes `/opt/openmontage` → `/state`; 
 5. Confirmar que el backup diario de 03:00 UTC corre y verificar uno.
 6. Medir 3 producciones reales y ajustar el mapa de modelos/presupuesto.
 
-## 5. Contactos y escalado
+## 6. Contactos y escalado
 
 - Operación: EasyPanel → `ollama` → logs del servicio.
 - Runbooks: [operations.md](operations.md) · [backups.md](backups.md) · [security.md](security.md).
 - Rollback: redeploy del build anterior en EasyPanel (<10 min) y verificar health.
+
+**Firmado:** equipo MetaLabIA · 2026-10-26 · GO beta interna, NO-GO público hasta completar los 4 pendientes manuales.

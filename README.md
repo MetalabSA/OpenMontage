@@ -107,6 +107,15 @@ Turn your AI coding assistant into a full video production studio. Describe what
 
 ---
 
+## Cabina Studio (MetaLabIA fork)
+
+This fork runs **Cabina Studio**, a production UI and operations layer on top of OpenMontage:
+
+- Studio: https://studio.metalabia.com · read-only board: https://board.metalabia.com
+- Docs: [user guide](docs/guia-uso.md) · [architecture](docs/architecture.md) · [operations](docs/operations.md) · [backups](docs/backups.md) · [security](docs/security.md)
+- QA: [report](docs/qa-report.md) · [launch checklist](docs/launch.md) · [roadmap](docs/roadmap.md)
+- Stack: FastAPI + React SPA, one worker, SQLite, Remotion/FFmpeg/Piper, DeepSeek via Claude Code CLI.
+
 ## Start From A Video You Already Love
 
 Starting from a reference video is often faster than starting from a blank prompt.
