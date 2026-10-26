@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, clearToken, fetchBlob, getToken, setToken, verifyToken } from "./api";
+import { api, clearToken, fetchBlob, fetchMe, getToken, getUser, loginWithPassword, logoutSession, setToken, verifyToken } from "./api";
 
 const STATUS_LABEL: Record<string, string> = {
   draft: "BORRADOR",
@@ -109,48 +109,74 @@ function useLive(slug: string, onEvent: () => void) {
   }, [slug]);
 }
 
-function Login({ onLogin }: { onLogin: (token: string) => void }) {
-  const [value, setValue] = useState("");
+function Login({ onLogin, onSession }: { onLogin: (token: string) => void; onSession: (user: any) => void }) {
+  const [mode, setMode] = useState<"account" | "token">("account");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [tokenValue, setTokenValue] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const submit = async (event: React.FormEvent) => {
+
+  const submitAccount = async (event: React.FormEvent) => {
     event.preventDefault();
     setBusy(true);
     setError("");
-    const ok = await verifyToken(value.trim());
+    try {
+      const user = await loginWithPassword(email.trim(), password);
+      onSession(user);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const submitToken = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    const ok = await verifyToken(tokenValue.trim());
     setBusy(false);
     if (ok) {
-      setToken(value);
-      onLogin(value.trim());
+      setToken(tokenValue);
+      onLogin(tokenValue.trim());
     } else {
       setError("El token no es válido o venció.");
     }
   };
+
   return (
     <div className="login-wrap">
-      <form className="login-card" onSubmit={submit}>
+      <div className="login-card">
         <div className="kicker">OPENMONTAGE · CABINA STUDIO</div>
         <h1>Entrar al estudio</h1>
-        <p className="muted">Pegá el API token de la instancia. Queda guardado solo en este navegador.</p>
-        <input
-          className="input"
-          type="password"
-          placeholder="om_..."
-          value={value}
-          onChange={(event) => setValue(event.target.value)}
-          autoFocus
-        />
-        {error && <div className="error-text">{error}</div>}
-        <button className="btn primary" disabled={busy || value.trim().length < 10}>
-          {busy ? "Verificando…" : "Entrar"}
-        </button>
-        <p className="hint">El token está en `.secrets/studio-api.txt` del servidor.</p>
-      </form>
+        <div className="auth-tabs" role="tablist" aria-label="Método de acceso">
+          <button role="tab" aria-selected={mode === "account"} className={`tab ${mode === "account" ? "active" : ""}`} onClick={() => setMode("account")}>Cuenta</button>
+          <button role="tab" aria-selected={mode === "token"} className={`tab ${mode === "token" ? "active" : ""}`} onClick={() => setMode("token")}>API token</button>
+        </div>
+        {mode === "account" ? (
+          <form className="login-form" onSubmit={submitAccount}>
+            <p className="muted">Ingresá con tu usuario y contraseña.</p>
+            <input className="input" type="email" placeholder="email@metalabia.com" value={email} onChange={(event) => setEmail(event.target.value)} autoFocus required />
+            <input className="input" type="password" placeholder="Contraseña" value={password} onChange={(event) => setPassword(event.target.value)} required />
+            {error && <div className="error-text">{error}</div>}
+            <button className="btn primary" disabled={busy || !email || !password}>{busy ? "Entrando…" : "Entrar"}</button>
+          </form>
+        ) : (
+          <form className="login-form" onSubmit={submitToken}>
+            <p className="muted">Pegá el API token de la instancia. Queda guardado solo en este navegador.</p>
+            <input className="input" type="password" placeholder="om_..." value={tokenValue} onChange={(event) => setTokenValue(event.target.value)} autoFocus />
+            {error && <div className="error-text">{error}</div>}
+            <button className="btn primary" disabled={busy || tokenValue.trim().length < 10}>{busy ? "Verificando…" : "Entrar"}</button>
+            <p className="hint">El token está en `.secrets/studio-api.txt` del servidor.</p>
+          </form>
+        )}
+      </div>
     </div>
   );
 }
 
-function Library({ onOpen, onLogout }: { onOpen: (slug: string) => void; onLogout: () => void }) {
+function Library({ onOpen, onLogout, user }: { onOpen: (slug: string) => void; onLogout: () => void; user: any }) {
   const [projects, setProjects] = useState<any[]>([]);
   const [pipelines, setPipelines] = useState<any[]>([]);
   const [error, setError] = useState("");
@@ -202,6 +228,7 @@ function Library({ onOpen, onLogout }: { onOpen: (slug: string) => void; onLogou
           <button className="btn ghost" onClick={() => (window.location.hash = "#/jobs")}>Jobs</button>
           <button className="btn ghost" onClick={() => (window.location.hash = "#/providers")}>Providers</button>
           <button className="btn ghost" onClick={() => (window.location.hash = "#/settings")}>Settings</button>
+          {user?.role === "admin" && <button className="btn ghost" onClick={() => (window.location.hash = "#/users")}>Usuarios</button>}
           <button className="btn primary" onClick={() => setShowNew(true)}>Nueva producción</button>
           <button className="btn ghost" onClick={onLogout}>Salir</button>
         </div>
@@ -761,6 +788,136 @@ function ChatRail({ slug, messages, onRefresh, decisions, cost }: { slug: string
   );
 }
 
+function UsersScreen({ onBack }: { onBack: () => void }) {
+  const [users, setUsers] = useState<any[]>([]);
+  const [tokens, setTokens] = useState<any[]>([]);
+  const [error, setError] = useState("");
+  const [form, setForm] = useState({ email: "", name: "", role: "producer", password: "" });
+  const [tokenName, setTokenName] = useState("integraciones");
+  const [issued, setIssued] = useState<any>(null);
+
+  const load = useCallback(async () => {
+    try {
+      const [userList, tokenList] = await Promise.all([api.get("/users"), api.get("/tokens")]);
+      setUsers(userList.data || []);
+      setTokens(tokenList.data || []);
+      setError("");
+    } catch (err: any) {
+      setError(err.message);
+    }
+  }, []);
+  useEffect(() => { void load(); }, [load]);
+
+  const createUser = async (event: React.FormEvent) => {
+    event.preventDefault();
+    try {
+      await api.post("/users", form);
+      setForm({ email: "", name: "", role: "producer", password: "" });
+      await load();
+    } catch (err: any) {
+      setError(err.message);
+    }
+  };
+  const setRole = async (user: any, role: string) => {
+    try {
+      await api.patch(`/users/${user.id}`, { role });
+      await load();
+    } catch (err: any) {
+      setError(err.message);
+    }
+  };
+  const removeUser = async (user: any) => {
+    if (!window.confirm(`¿Eliminar a ${user.email}?`)) return;
+    try {
+      await api.del(`/users/${user.id}`);
+      await load();
+    } catch (err: any) {
+      setError(err.message);
+    }
+  };
+  const createToken = async (event: React.FormEvent) => {
+    event.preventDefault();
+    try {
+      const payload = await api.post("/tokens", { name: tokenName });
+      setIssued(payload);
+      await load();
+    } catch (err: any) {
+      setError(err.message);
+    }
+  };
+  const removeToken = async (token: any) => {
+    if (!window.confirm(`¿Revocar el token ${token.name}?`)) return;
+    try {
+      await api.del(`/tokens/${token.id}`);
+      await load();
+    } catch (err: any) {
+      setError(err.message);
+    }
+  };
+
+  return (
+    <ScreenShell title="Usuarios y accesos" onBack={onBack}>
+      {error && <div className="error-banner">{error}</div>}
+      <div className="settings-grid">
+        <section className="settings-card wide">
+          <div className="kicker">USUARIOS</div>
+          <div className="table">
+            <div className="tr head"><span>Email</span><span>Nombre</span><span>Rol</span><span>Alta</span><span /></div>
+            {users.map((user) => (
+              <div key={user.id} className="tr">
+                <span>{user.email}</span>
+                <span>{user.name || "—"}</span>
+                <span>
+                  <select className="input select" value={user.role} onChange={(event) => setRole(user, event.target.value)} aria-label={`Rol de ${user.email}`}>
+                    {["admin", "producer", "viewer"].map((role) => <option key={role} value={role}>{role}</option>)}
+                  </select>
+                </span>
+                <span className="mono">{(user.created_at || "").slice(0, 10)}</span>
+                <button className="btn tiny danger" onClick={() => removeUser(user)}>Eliminar</button>
+              </div>
+            ))}
+          </div>
+          <form className="user-form" onSubmit={createUser}>
+            <input className="input" placeholder="email" type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} required />
+            <input className="input" placeholder="nombre" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} />
+            <select className="input" value={form.role} onChange={(event) => setForm({ ...form, role: event.target.value })}>
+              {["producer", "viewer", "admin"].map((role) => <option key={role} value={role}>{role}</option>)}
+            </select>
+            <input className="input" placeholder="contraseña (8+)" type="password" value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} required />
+            <button className="btn primary">Crear usuario</button>
+          </form>
+        </section>
+        <section className="settings-card wide">
+          <div className="kicker">API TOKENS</div>
+          <div className="table">
+            <div className="tr head"><span>Nombre</span><span>Usuario</span><span>Creado</span><span>Último uso</span><span /></div>
+            {tokens.map((token) => (
+              <div key={token.id} className="tr">
+                <span>{token.name}</span>
+                <span>{token.email}</span>
+                <span className="mono">{(token.created_at || "").slice(0, 10)}</span>
+                <span className="mono">{(token.last_used || "—").slice(0, 10)}</span>
+                <button className="btn tiny danger" onClick={() => removeToken(token)}>Revocar</button>
+              </div>
+            ))}
+          </div>
+          <form className="user-form" onSubmit={createToken}>
+            <input className="input" placeholder="nombre del token" value={tokenName} onChange={(event) => setTokenName(event.target.value)} />
+            <button className="btn primary">Generar token</button>
+          </form>
+          {issued && (
+            <div className="issued">
+              <div className="kicker">COPIALO AHORA — NO SE VUELVE A MOSTRAR</div>
+              <pre>{issued.token}</pre>
+              <button className="btn tiny" onClick={() => setIssued(null)}>Listo</button>
+            </div>
+          )}
+        </section>
+      </div>
+    </ScreenShell>
+  );
+}
+
 function Workspace({ slug, onBack, onLogout }: { slug: string; onBack: () => void; onLogout: () => void }) {
   const [project, setProject] = useState<any>(null);
   const [board, setBoard] = useState<any>(null);
@@ -952,22 +1109,50 @@ function Workspace({ slug, onBack, onLogout }: { slug: string; onBack: () => voi
 
 export default function App() {
   const [token, setTok] = useState(getToken());
+  const [user, setUserState] = useState<any>(getUser());
   const [route, setRoute] = useState(window.location.hash || "#/");
+  const [booting, setBooting] = useState(true);
+
   useEffect(() => {
     const onHash = () => setRoute(window.location.hash || "#/");
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
   }, []);
+
+  useEffect(() => {
+    (async () => {
+      if (token) {
+        const ok = await verifyToken(token);
+        if (!ok) {
+          clearToken();
+          setTok("");
+          setUserState(null);
+        }
+      } else {
+        const sessionUser = await fetchMe();
+        if (sessionUser) setUserState(sessionUser);
+      }
+      setBooting(false);
+    })();
+  }, []);
+
   const logout = () => {
+    void logoutSession();
     clearToken();
     setTok("");
+    setUserState(null);
     window.location.hash = "#/";
   };
-  if (!token) return <Login onLogin={setTok} />;
+
+  if (booting) return <div className="page loading">Cargando…</div>;
+  if (!token && !user) {
+    return <Login onLogin={(next) => { setTok(next); setUserState(null); }} onSession={(next) => { setUserState(next); setTok(""); }} />;
+  }
   const slug = route.startsWith("#/p/") ? route.slice(4) : "";
   if (slug) return <Workspace key={slug} slug={slug} onBack={() => (window.location.hash = "#/")} onLogout={logout} />;
   if (route === "#/jobs") return <JobsScreen onBack={() => (window.location.hash = "#/")} onOpenProject={(next) => (window.location.hash = `#/p/${next}`)} />;
   if (route === "#/providers") return <ProvidersScreen onBack={() => (window.location.hash = "#/")} />;
   if (route === "#/settings") return <SettingsScreen onBack={() => (window.location.hash = "#/")} />;
-  return <Library onOpen={(next) => (window.location.hash = `#/p/${next}`)} onLogout={logout} />;
+  if (route === "#/users") return <UsersScreen onBack={() => (window.location.hash = "#/")} />;
+  return <Library onOpen={(next) => (window.location.hash = `#/p/${next}`)} onLogout={logout} user={user} />;
 }

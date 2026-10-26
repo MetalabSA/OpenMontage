@@ -274,3 +274,75 @@ def test_reorder_scenes_and_job_log(client, auth):
     log = client.get(f"/api/jobs/{job.json()['id']}/log", headers=auth)
     assert log.status_code == 200
     assert log.json()["data"]
+
+
+def test_users_sessions_csrf_and_roles(client, auth):
+    import uuid
+
+    from fastapi.testclient import TestClient
+
+    from api.main import app
+
+    email = f"prod-{uuid.uuid4().hex[:6]}@test.local"
+    created = client.post(
+        "/api/users",
+        json={"email": email, "name": "Productora", "role": "producer", "password": "secret123"},
+        headers=auth,
+    )
+    assert created.status_code == 201, created.text
+    user_id = created.json()["id"]
+
+    viewer_email = f"viewer-{uuid.uuid4().hex[:6]}@test.local"
+    viewer = client.post(
+        "/api/users",
+        json={"email": viewer_email, "name": "Viewer", "role": "viewer", "password": "secret123"},
+        headers=auth,
+    )
+    assert viewer.status_code == 201
+
+    with TestClient(app) as session:
+        login = session.post("/api/auth/login", json={"email": email, "password": "secret123"})
+        assert login.status_code == 200, login.text
+        csrf = login.json()["csrf_token"]
+        me = session.get("/api/auth/me")
+        assert me.status_code == 200 and me.json()["user"]["role"] == "producer"
+
+        # Cookie auth requires CSRF on mutations.
+        missing = session.post("/api/projects", json={"title": "Sin CSRF", "pipeline": "animation"})
+        assert missing.status_code == 403
+        assert missing.json()["error"]["code"] == "csrf_failed"
+
+        ok = session.post(
+            "/api/projects",
+            json={"title": f"Con CSRF {uuid.uuid4().hex[:5]}", "pipeline": "animation"},
+            headers={"X-CSRF-Token": csrf},
+        )
+        assert ok.status_code == 201, ok.text
+
+    with TestClient(app) as viewer_session:
+        login = viewer_session.post("/api/auth/login", json={"email": viewer_email, "password": "secret123"})
+        assert login.status_code == 200
+        forbidden = viewer_session.get("/api/users")
+        assert forbidden.status_code == 403
+
+    assert client.delete(f"/api/users/{user_id}", headers=auth).status_code == 204
+
+
+def test_api_tokens_and_audit(client, auth):
+    users = client.get("/api/users", headers=auth).json()["data"]
+    admin = next(user for user in users if user["role"] == "admin")
+    created = client.post("/api/tokens", json={"name": "ci", "user_id": admin["id"]}, headers=auth)
+    assert created.status_code == 201, created.text
+    raw = created.json()["token"]
+    token_id = created.json()["id"]
+    assert raw.startswith("om_")
+
+    response = client.get("/api/projects", headers={"Authorization": f"Bearer {raw}"})
+    assert response.status_code == 200
+
+    audit = client.get("/api/audit", headers=auth)
+    assert audit.status_code == 200
+    assert any(entry["action"] == "token.created" for entry in audit.json()["data"])
+
+    assert client.delete(f"/api/tokens/{token_id}", headers=auth).status_code == 204
+    assert client.get("/api/projects", headers={"Authorization": f"Bearer {raw}"}).status_code == 401

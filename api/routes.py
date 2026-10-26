@@ -18,7 +18,7 @@ from api import config, db, schemas_io
 from api.deps import COOKIE_NAME, AuthContext, current_auth, get_db, require_admin, require_producer, require_viewer
 from api.errors import ApiError
 from api.events import broker
-from api.services import board, chat, costs, gates, jobs, media, pipelines, projects, providers, scenes, settings
+from api.services import board, chat, costs, gates, jobs, media, pipelines, projects, providers, scenes, settings, users
 from api.services import chat as chat_service
 
 router = APIRouter(prefix="/api")
@@ -65,6 +65,29 @@ class SceneBody(BaseModel):
     prompt: str | None = None
     instructions: str | None = None
     model: str | None = None
+
+
+class UserCreateBody(BaseModel):
+    email: str
+    name: str | None = None
+    role: str = "producer"
+    password: str
+
+
+class UserPatchBody(BaseModel):
+    name: str | None = None
+    role: str | None = None
+    password: str | None = None
+
+
+class PasswordBody(BaseModel):
+    current_password: str
+    new_password: str
+
+
+class TokenBody(BaseModel):
+    name: str = "token"
+    user_id: str | None = None
 
 
 class SceneOrderBody(BaseModel):
@@ -126,7 +149,7 @@ def login(body: LoginBody, response: Response, conn: sqlite3.Connection = Depend
         COOKIE_NAME,
         token,
         httponly=True,
-        secure=True,
+        secure=config.COOKIE_SECURE,
         samesite="lax",
         max_age=config.SESSION_HOURS * 3600,
     )
@@ -143,9 +166,94 @@ def logout(request: Request, response: Response, conn: sqlite3.Connection = Depe
     return {"ok": True}
 
 
+@router.post("/auth/password")
+def change_password_route(
+    body: PasswordBody,
+    ctx: AuthContext = Depends(current_auth),
+    conn: sqlite3.Connection = Depends(get_db),
+) -> dict[str, Any]:
+    users.change_password(conn, ctx.user["id"], body.current_password, body.new_password)
+    return {"ok": True}
+
+
 @router.get("/auth/me")
 def me(ctx: AuthContext = Depends(current_auth)) -> dict[str, Any]:
     return {"user": _user_payload(ctx.user), "csrf_token": ctx.csrf}
+
+
+# --- users / tokens / audit -----------------------------------------------
+@router.get("/users")
+def list_users(_: AuthContext = Depends(require_admin), conn: sqlite3.Connection = Depends(get_db)) -> dict[str, Any]:
+    return users.list_users(conn)
+
+
+@router.post("/users", status_code=201)
+def create_user(
+    body: UserCreateBody,
+    ctx: AuthContext = Depends(require_admin),
+    conn: sqlite3.Connection = Depends(get_db),
+) -> dict[str, Any]:
+    return users.create_user(
+        conn,
+        email=body.email,
+        name=body.name,
+        role=body.role,
+        password=body.password,
+        actor=ctx.user["id"],
+    )
+
+
+@router.patch("/users/{user_id}")
+def update_user(
+    user_id: str,
+    body: UserPatchBody,
+    ctx: AuthContext = Depends(require_admin),
+    conn: sqlite3.Connection = Depends(get_db),
+) -> dict[str, Any]:
+    return users.update_user(conn, user_id, body.model_dump(exclude_none=True), ctx.user["id"])
+
+
+@router.delete("/users/{user_id}", status_code=204)
+def delete_user(
+    user_id: str,
+    ctx: AuthContext = Depends(require_admin),
+    conn: sqlite3.Connection = Depends(get_db),
+) -> Response:
+    users.delete_user(conn, user_id, ctx.user["id"])
+    return Response(status_code=204)
+
+
+@router.get("/tokens")
+def list_tokens(_: AuthContext = Depends(require_admin), conn: sqlite3.Connection = Depends(get_db)) -> dict[str, Any]:
+    return users.list_tokens(conn)
+
+
+@router.post("/tokens", status_code=201)
+def create_token(
+    body: TokenBody,
+    ctx: AuthContext = Depends(require_admin),
+    conn: sqlite3.Connection = Depends(get_db),
+) -> dict[str, Any]:
+    return users.create_token(conn, body.user_id or ctx.user["id"], body.name, ctx.user["id"])
+
+
+@router.delete("/tokens/{token_id}", status_code=204)
+def delete_token(
+    token_id: str,
+    ctx: AuthContext = Depends(require_admin),
+    conn: sqlite3.Connection = Depends(get_db),
+) -> Response:
+    users.delete_token(conn, token_id, ctx.user["id"])
+    return Response(status_code=204)
+
+
+@router.get("/audit")
+def audit_log(
+    limit: int = Query(100, ge=1, le=500),
+    _: AuthContext = Depends(require_admin),
+    conn: sqlite3.Connection = Depends(get_db),
+) -> dict[str, Any]:
+    return users.audit_log(conn, limit)
 
 
 # --- providers / pipelines ------------------------------------------------

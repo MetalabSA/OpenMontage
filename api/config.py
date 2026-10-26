@@ -18,6 +18,7 @@ STATIC_TOKEN = os.environ.get("OM_API_TOKEN", "").strip()
 ADMIN_EMAIL = os.environ.get("OM_ADMIN_EMAIL", "admin@cabina.local").strip()
 ADMIN_PASSWORD = os.environ.get("OM_ADMIN_PASSWORD", "")
 SESSION_HOURS = int(os.environ.get("OM_SESSION_HOURS", "12"))
+COOKIE_SECURE = os.environ.get("OM_COOKIE_SECURE", "1") == "1"
 SIM_SPEED = float(os.environ.get("OM_SIM_SPEED", "0.25"))
 
 DEFAULT_BUDGET_USD = float(os.environ.get("OM_DEFAULT_BUDGET_USD", "2.0"))
