@@ -140,6 +140,7 @@ You are the production agent for a video pipeline. Execute exactly one stage and
 - Validate it against the schema below before finishing.
 - Do not change the render runtime, provider or model unless the instruction explicitly asks.
 - Do not invent data: use the brief, prior artifacts and your tools.
+- Do not run more than 20 tool calls. Do not use web search unless this stage is `research`.
 - Finish with a one-paragraph summary of what you produced.
 
 ## Run context
@@ -177,7 +178,7 @@ def _provider_key(conn) -> str:
         return ""
 
 
-def _engine_env(conn) -> dict[str, str]:
+def _engine_env(conn, model: str) -> dict[str, str]:
     key = _provider_key(conn)
     if not key:
         raise AgentError(
@@ -189,22 +190,43 @@ def _engine_env(conn) -> dict[str, str]:
     if config.ENGINE_PROVIDER == "deepseek":
         env["ANTHROPIC_BASE_URL"] = config.ENGINE_BASE_URL or config.DEEPSEEK_BASE_URL
         env["ANTHROPIC_AUTH_TOKEN"] = key
-        env["ANTHROPIC_MODEL"] = config.ENGINE_MODEL
-        env["ANTHROPIC_DEFAULT_OPUS_MODEL"] = config.ENGINE_MODEL
-        env["ANTHROPIC_DEFAULT_SONNET_MODEL"] = config.ENGINE_MODEL
-        env["ANTHROPIC_DEFAULT_HAIKU_MODEL"] = config.ENGINE_MODEL
-        env["CLAUDE_CODE_SUBAGENT_MODEL"] = config.ENGINE_MODEL
+        env["ANTHROPIC_MODEL"] = model
+        env["ANTHROPIC_DEFAULT_OPUS_MODEL"] = model
+        env["ANTHROPIC_DEFAULT_SONNET_MODEL"] = model
+        env["ANTHROPIC_DEFAULT_HAIKU_MODEL"] = model
+        env["CLAUDE_CODE_SUBAGENT_MODEL"] = model
         env["CLAUDE_CODE_EFFORT_LEVEL"] = "max"
+        env["IS_SANDBOX"] = "1"
     else:
         env["ANTHROPIC_API_KEY"] = key
-        env["ANTHROPIC_MODEL"] = config.ENGINE_MODEL
+        env["ANTHROPIC_MODEL"] = model
     env.setdefault("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "1")
     return env
 
 
-def _run_claude(job_id: str, prompt: str, cwd: Path, conn) -> dict[str, Any]:
-    env = _engine_env(conn)
-    model = config.ENGINE_MODEL
+def _deepseek_cost(model: str, usage: dict[str, Any]) -> float:
+    prices = config.DEEPSEEK_PRICES.get(model)
+    if not prices:
+        prices = config.DEEPSEEK_PRICES["deepseek-flash"]
+    now = time.gmtime()
+    peak = 1 <= now.tm_hour < 4 or 6 <= now.tm_hour < 10
+    if now.tm_wday >= 5:
+        peak = False
+    multiplier = 2.0 if peak else 1.0
+    input_tokens = int(usage.get("input_tokens") or 0)
+    cache_read = int(usage.get("cache_read_input_tokens") or 0)
+    output_tokens = int(usage.get("output_tokens") or 0)
+    miss = max(0, input_tokens - cache_read)
+    return round(
+        (miss * prices["miss"] + cache_read * prices["hit"] + output_tokens * prices["out"])
+        * multiplier
+        / 1_000_000,
+        6,
+    )
+
+
+def _run_claude(job_id: str, prompt: str, cwd: Path, conn, model: str) -> dict[str, Any]:
+    env = _engine_env(conn, model)
     args = [
         "claude",
         "-p",
@@ -215,6 +237,8 @@ def _run_claude(job_id: str, prompt: str, cwd: Path, conn) -> dict[str, Any]:
     ]
     if model:
         args += ["--model", model]
+    if config.AGENT_MAX_TURNS > 0:
+        args += ["--max-turns", str(config.AGENT_MAX_TURNS)]
     try:
         proc = subprocess.Popen(
             args,
@@ -251,11 +275,14 @@ def _run_claude(job_id: str, prompt: str, cwd: Path, conn) -> dict[str, Any]:
         raise AgentError("agent_failed", f"Unparseable agent output: {(stdout or '')[:400]}")
     if payload.get("is_error"):
         raise AgentError("agent_failed", str(payload.get("result") or "agent reported an error")[:800])
-    try:
-        cost = float(payload.get("total_cost_usd") or 0)
-    except (TypeError, ValueError):
-        cost = 0.0
-    return {"result": payload.get("result") or "", "cost": cost}
+    if config.ENGINE_PROVIDER == "deepseek":
+        cost = _deepseek_cost(model, payload.get("usage") or {})
+    else:
+        try:
+            cost = float(payload.get("total_cost_usd") or 0)
+        except (TypeError, ValueError):
+            cost = 0.0
+    return {"result": payload.get("result") or "", "cost": cost, "usage": payload.get("usage")}
 
 
 async def execute_job(
@@ -292,7 +319,9 @@ async def execute_job(
             cost = 0.0
         else:
             attempt_prompt = prompt if not last_error else prompt + f"\n\n## Previous attempt failed\n{last_error}\nFix it and write a valid artifact."
-            result = await asyncio.to_thread(_run_claude, job["id"], attempt_prompt, project_dir, conn)
+            result = await asyncio.to_thread(
+                _run_claude, job["id"], attempt_prompt, project_dir, conn, job.get("model") or config.ENGINE_MODEL
+            )
             cost += float(result.get("cost") or 0)
             emit("log", {"level": "info", "line": (result.get("result") or "")[:4000]})
             data = schemas_io.read_json(target)

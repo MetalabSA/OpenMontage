@@ -32,6 +32,14 @@ ENGINE_BASE_URL = os.environ.get("OM_ENGINE_BASE_URL", "").strip()
 ENGINE_MODEL = os.environ.get("OM_ENGINE_MODEL", "deepseek-flash").strip()
 AGENT_TIMEOUT = int(os.environ.get("OM_AGENT_TIMEOUT", "1200"))
 AGENT_MAX_ATTEMPTS = int(os.environ.get("OM_AGENT_MAX_ATTEMPTS", "2"))
+AGENT_MAX_TURNS = int(os.environ.get("OM_AGENT_MAX_TURNS", "30"))
+
+# DeepSeek list prices (USD per 1M tokens) — used to compute the real cost from usage,
+# because Claude Code reports an Anthropic-priced estimate for unknown models.
+DEEPSEEK_PRICES = {
+    "deepseek-flash": {"miss": 0.15, "hit": 0.003, "out": 0.60},
+    "deepseek-v4-pro": {"miss": 0.66, "hit": 0.022, "out": 1.98},
+}
 EVENTS_PATH = Path(os.environ.get("OM_EVENTS_PATH") or (DB_PATH.parent / "events.jsonl")).resolve()
 
 DEEPSEEK_BASE_URL = "https://api.deepseek.com/anthropic"
