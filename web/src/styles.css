@@ -232,8 +232,17 @@ p { margin: 0; line-height: 1.55; }
   .workspace { grid-template-columns: 1fr; }
   .sidebar { display: none; }
   .library { padding: 20px 14px 40px; }
-  .topbar { padding: 0 12px; }
+  .topbar { height: auto; min-height: 56px; flex-wrap: wrap; padding: 8px 12px; gap: 8px; }
+  .topbar-left { gap: 8px; }
+  .topbar-actions { flex-wrap: wrap; gap: 6px; }
+  .topbar-actions .btn { padding: 6px 9px; font-size: 11px; }
+  .wordmark { font-size: 10px; white-space: nowrap; }
+  .section-head { flex-direction: column; align-items: flex-start; gap: 4px; }
   .storyboard { grid-template-columns: 1fr; }
+  .tabs { overflow-x: auto; flex-wrap: nowrap; }
+  .tab { flex: 0 0 auto; }
+  .stage { flex: 0 0 84px; }
+  .board { padding: 14px 14px 40px; }
 }
 
 

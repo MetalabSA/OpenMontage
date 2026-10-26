@@ -55,6 +55,9 @@ def derive_status(slug: str, directory: Path, row: dict | None) -> str:
     report = directory / "artifacts" / "render_report.json"
     if final.is_file() and report.is_file():
         return "ready"
+    rendered = [path for path in (directory / "renders").glob("*.mp4") if path.stat().st_size > 0]
+    if statuses.get("compose") == "completed" and rendered:
+        return "ready"
     if statuses and all(value == "completed" for value in statuses.values()):
         return "composing"
     if any(value == "failed" for value in statuses.values()):
