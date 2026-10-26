@@ -34,15 +34,18 @@ async def lifespan(app: FastAPI):
     import asyncio
     from contextlib import suppress
 
+    from api.services.backups import backup_scheduler
     from api.watcher import watch_projects
 
     watcher = asyncio.create_task(watch_projects())
+    scheduler = asyncio.create_task(backup_scheduler())
     try:
         yield
     finally:
-        watcher.cancel()
-        with suppress(asyncio.CancelledError):
-            await watcher
+        for task in (watcher, scheduler):
+            task.cancel()
+            with suppress(asyncio.CancelledError):
+                await task
 
 
 def create_app() -> FastAPI:

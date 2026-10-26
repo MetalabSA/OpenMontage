@@ -346,3 +346,30 @@ def test_api_tokens_and_audit(client, auth):
 
     assert client.delete(f"/api/tokens/{token_id}", headers=auth).status_code == 204
     assert client.get("/api/projects", headers={"Authorization": f"Bearer {raw}"}).status_code == 401
+
+
+def test_backups_storage_and_retention(client, auth, project):
+    created = client.post("/api/admin/backups", headers=auth)
+    assert created.status_code == 201, created.text
+    backup = created.json()
+    assert backup["name"].startswith("cabina-") and backup["size"] > 0
+
+    listing = client.get("/api/admin/backups", headers=auth)
+    assert listing.status_code == 200
+    assert any(item["name"] == backup["name"] for item in listing.json()["data"])
+
+    verified = client.post(f"/api/admin/backups/{backup['name']}/verify", headers=auth)
+    assert verified.status_code == 200, verified.text
+    report = verified.json()
+    assert report["valid"] is True
+    assert report["projects"]
+    assert any(check["name"] == "sqlite_integrity" and check["ok"] for check in report["checks"])
+
+    storage = client.get("/api/admin/storage", headers=auth)
+    assert storage.status_code == 200
+    assert storage.json()["backups_count"] >= 1
+    assert "disk_used_pct" in storage.json()
+
+    retention = client.post("/api/admin/retention", json={"dry_run": True}, headers=auth)
+    assert retention.status_code == 200
+    assert retention.json()["dry_run"] is True

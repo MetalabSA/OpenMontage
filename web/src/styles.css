@@ -301,3 +301,9 @@ p { margin: 0; line-height: 1.55; }
 
 .settings-card .tr { grid-template-columns: 1.6fr 1fr .7fr .8fr auto; }
 .settings-card .tr .input { min-width: 90px; padding: 5px 8px; }
+
+.storage-box { display: grid; gap: 8px; }
+.backup-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.backup-list { display: grid; gap: 4px; }
+.backup-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 7px 0; border-bottom: 1px dashed #2a2722; font-size: 12.5px; }
+.backup-row-actions { display: flex; gap: 6px; }

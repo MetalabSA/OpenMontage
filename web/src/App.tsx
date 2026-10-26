@@ -637,6 +637,11 @@ function SettingsScreen({ onBack }: { onBack: () => void }) {
   const [projectsDays, setProjectsDays] = useState(90);
   const [rendersDays, setRendersDays] = useState(30);
   const [keys, setKeys] = useState<Record<string, string>>({});
+  const [storage, setStorage] = useState<any>(null);
+  const [backupList, setBackupList] = useState<any[]>([]);
+  const [backupBusy, setBackupBusy] = useState(false);
+  const [verifyReport, setVerifyReport] = useState<any>(null);
+  const [retentionReport, setRetentionReport] = useState<any>(null);
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
   useEffect(() => {
@@ -647,7 +652,64 @@ function SettingsScreen({ onBack }: { onBack: () => void }) {
       setProjectsDays(Number(payload.retention?.projects_days ?? 90));
       setRendersDays(Number(payload.retention?.renders_days ?? 30));
     }).catch((err) => setError(err.message));
+    void loadOps();
   }, []);
+
+  const loadOps = async () => {
+    try {
+      const [storageData, backupData] = await Promise.all([api.get("/admin/storage"), api.get("/admin/backups")]);
+      setStorage(storageData);
+      setBackupList(backupData.data || []);
+    } catch {
+      /* admin-only; keep settings usable */
+    }
+  };
+
+  const createBackup = async () => {
+    setBackupBusy(true);
+    setStatus("");
+    try {
+      const createdBackup = await api.post("/admin/backups", {});
+      setStatus(`Backup creado: ${createdBackup.name} (${(createdBackup.size / 1024 / 1024).toFixed(1)} MB)`);
+      await loadOps();
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setBackupBusy(false);
+    }
+  };
+
+  const verifyBackup = async (name: string) => {
+    setBackupBusy(true);
+    try {
+      setVerifyReport(await api.post(`/admin/backups/${name}/verify`, {}));
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setBackupBusy(false);
+    }
+  };
+
+  const downloadBackup = async (name: string) => {
+    try {
+      const url = await fetchBlob(`/api/admin/backups/${name}`);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = name;
+      anchor.click();
+      URL.revokeObjectURL(url);
+    } catch (err: any) {
+      setError(err.message);
+    }
+  };
+
+  const previewRetention = async () => {
+    try {
+      setRetentionReport(await api.post("/admin/retention", { dry_run: true }));
+    } catch (err: any) {
+      setError(err.message);
+    }
+  };
   const save = async () => {
     setError("");
     setStatus("");
@@ -657,6 +719,7 @@ function SettingsScreen({ onBack }: { onBack: () => void }) {
         engine: { default_map: map },
         budget: { total_usd: Number(budget), mode: "warn" },
         retention: { projects_days: Number(projectsDays), renders_days: Number(rendersDays) },
+        backup: settings.backup || { enabled: true, hour: 3, keep: 7 },
         providers,
       });
       setSettings(payload);
@@ -697,6 +760,46 @@ function SettingsScreen({ onBack }: { onBack: () => void }) {
                 <input className="input" type="password" placeholder="nueva clave…" value={keys[provider.id] || ""} onChange={(event) => setKeys({ ...keys, [provider.id]: event.target.value })} />
               </label>
             ))}
+          </section>
+          <section className="settings-card wide">
+            <div className="kicker">BACKUPS Y ALMACENAMIENTO</div>
+            {storage && (
+              <div className="storage-box">
+                <div className="rail-title"><span>Disco</span><span className="mono">{storage.disk_used_pct}% usado · {storage.disk_free_gb} GB libres</span></div>
+                <div className="cost-bar"><span style={{ width: `${Math.min(100, storage.disk_used_pct)}%` }} /></div>
+                {storage.disk_warning && <div className="error-text">Disco por encima del umbral de alerta. Corré retención o ampliá el volumen.</div>}
+                <div className="muted small">Proyectos: {(storage.projects_bytes / 1024 / 1024).toFixed(1)} MB · Backups: {(storage.backups_bytes / 1024 / 1024).toFixed(1)} MB ({storage.backups_count})</div>
+              </div>
+            )}
+            <div className="backup-actions">
+              <button className="btn primary" disabled={backupBusy} onClick={createBackup}>{backupBusy ? "Trabajando…" : "Crear backup ahora"}</button>
+              <button className="btn ghost" onClick={previewRetention}>Previsualizar retención</button>
+            </div>
+            <div className="backup-list">
+              {backupList.map((item: any) => (
+                <div key={item.name} className="backup-row">
+                  <span className="mono">{item.created_at?.slice(0, 19).replace("T", " ")}</span>
+                  <span>{(item.size / 1024 / 1024).toFixed(1)} MB · {item.project_count} proyectos</span>
+                  <div className="backup-row-actions">
+                    <button className="btn tiny" onClick={() => verifyBackup(item.name)}>Verificar</button>
+                    <button className="btn tiny" onClick={() => downloadBackup(item.name)}>Descargar</button>
+                  </div>
+                </div>
+              ))}
+              {!backupList.length && <p className="muted small">Sin backups todavía.</p>}
+            </div>
+            {verifyReport && (
+              <div className="issued">
+                <div className="kicker">VERIFICACIÓN {verifyReport.valid ? "OK" : "CON ERRORES"}</div>
+                <pre>{verifyReport.checks.map((check: any) => `${check.ok ? "✓" : "✗"} ${check.name}${check.detail ? ": " + check.detail : ""}`).join("\n")}</pre>
+              </div>
+            )}
+            {retentionReport && (
+              <div className="issued">
+                <div className="kicker">RETENCIÓN (SIMULACIÓN)</div>
+                <pre>{`renders > ${retentionReport.renders_days} días: ${retentionReport.candidate_count}\nliberaría: ${(retentionReport.freed_bytes / 1024 / 1024).toFixed(1)} MB`}</pre>
+              </div>
+            )}
           </section>
           <div className="settings-actions"><button className="btn primary" onClick={save}>Guardar cambios</button></div>
         </div>

@@ -18,7 +18,7 @@ from api import config, db, schemas_io
 from api.deps import COOKIE_NAME, AuthContext, current_auth, get_db, require_admin, require_producer, require_viewer
 from api.errors import ApiError
 from api.events import broker
-from api.services import board, chat, costs, gates, jobs, media, pipelines, projects, providers, scenes, settings, users
+from api.services import backups, board, chat, costs, gates, jobs, media, pipelines, projects, providers, scenes, settings, users
 from api.services import chat as chat_service
 
 router = APIRouter(prefix="/api")
@@ -90,6 +90,10 @@ class TokenBody(BaseModel):
     user_id: str | None = None
 
 
+class RetentionBody(BaseModel):
+    dry_run: bool = True
+
+
 class SceneOrderBody(BaseModel):
     order: list[str]
 
@@ -118,6 +122,7 @@ def health(conn: sqlite3.Connection = Depends(get_db)) -> dict[str, Any]:
     except Exception:
         projects_count, active, current, db_ok = 0, 0, None, False
     usage = shutil.disk_usage(config.PROJECTS_DIR if config.PROJECTS_DIR.exists() else config.ROOT)
+    used_pct = round((usage.used / usage.total) * 100, 1) if usage.total else 0
     return {
         "status": "ok" if db_ok else "degraded",
         "version": "1.0.0",
@@ -127,7 +132,12 @@ def health(conn: sqlite3.Connection = Depends(get_db)) -> dict[str, Any]:
             "queue_depth": int(active),
             "current_job_id": current["id"] if current else None,
         },
-        "storage": {"disk_free_gb": round(usage.free / 1024**3, 1), "projects_count": projects_count},
+        "storage": {
+            "disk_free_gb": round(usage.free / 1024**3, 1),
+            "disk_used_pct": used_pct,
+            "disk_warning": used_pct >= config.DISK_WARN_PCT,
+            "projects_count": projects_count,
+        },
         "runtimes": {
             "ffmpeg": bool(shutil.which("ffmpeg")),
             "remotion": (config.ROOT / "remotion-composer" / "node_modules").is_dir(),
@@ -254,6 +264,45 @@ def audit_log(
     conn: sqlite3.Connection = Depends(get_db),
 ) -> dict[str, Any]:
     return users.audit_log(conn, limit)
+
+
+# --- backups / storage / retention (admin) --------------------------------
+@router.post("/admin/backups", status_code=201)
+def create_backup(
+    ctx: AuthContext = Depends(require_admin),
+    conn: sqlite3.Connection = Depends(get_db),
+) -> dict[str, Any]:
+    return backups.create_backup(conn, ctx.user["id"])
+
+
+@router.get("/admin/backups")
+def list_backups(_: AuthContext = Depends(require_admin)) -> dict[str, Any]:
+    return backups.list_backups()
+
+
+@router.get("/admin/backups/{name}")
+def download_backup(name: str, _: AuthContext = Depends(require_admin)) -> FileResponse:
+    path = backups._backup_path(name)
+    return FileResponse(path, filename=name, media_type="application/gzip")
+
+
+@router.post("/admin/backups/{name}/verify")
+def verify_backup(name: str, _: AuthContext = Depends(require_admin)) -> dict[str, Any]:
+    return backups.verify_backup(name)
+
+
+@router.get("/admin/storage")
+def storage(_: AuthContext = Depends(require_admin)) -> dict[str, Any]:
+    return backups.storage_stats()
+
+
+@router.post("/admin/retention")
+def retention(
+    body: RetentionBody | None = None,
+    _: AuthContext = Depends(require_admin),
+    conn: sqlite3.Connection = Depends(get_db),
+) -> dict[str, Any]:
+    return backups.retention_report(conn, dry_run=(body.dry_run if body else True))
 
 
 # --- providers / pipelines ------------------------------------------------

@@ -42,6 +42,11 @@ DEEPSEEK_PRICES = {
     "deepseek-v4-pro": {"miss": 0.66, "hit": 0.022, "out": 1.98},
 }
 EVENTS_PATH = Path(os.environ.get("OM_EVENTS_PATH") or (DB_PATH.parent / "events.jsonl")).resolve()
+DATA_DIR = PROJECTS_DIR.parent
+BACKUPS_DIR = Path(os.environ.get("OM_BACKUPS_DIR") or (DATA_DIR / "backups")).resolve()
+BACKUP_KEEP = int(os.environ.get("OM_BACKUP_KEEP", "7"))
+BACKUP_INCLUDE_VOICES = os.environ.get("OM_BACKUP_INCLUDE_VOICES", "0") == "1"
+DISK_WARN_PCT = int(os.environ.get("OM_DISK_WARN_PCT", "80"))
 
 DEEPSEEK_BASE_URL = "https://api.deepseek.com/anthropic"
 
