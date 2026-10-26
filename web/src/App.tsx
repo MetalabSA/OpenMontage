@@ -678,6 +678,89 @@ function SettingsScreen({ onBack }: { onBack: () => void }) {
   );
 }
 
+function ChatRail({ slug, messages, onRefresh, decisions, cost }: { slug: string; messages: any[]; onRefresh: () => void; decisions: any[]; cost: any }) {
+  const [text, setText] = useState("");
+  const [model, setModel] = useState("deepseek-flash");
+  const [busy, setBusy] = useState(false);
+  const send = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!text.trim()) return;
+    setBusy(true);
+    try {
+      await api.post(`/projects/${slug}/chat`, { content: text.trim(), model });
+      setText("");
+      setTimeout(onRefresh, 600);
+    } catch (err: any) {
+      alert(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const runAction = async (action: any) => {
+    try {
+      if (action.type === "undo") await api.post(`/projects/${slug}/undo`, {});
+      else if (action.type === "retry" && action.payload?.job_id) await api.post(`/jobs/${action.payload.job_id}/cancel`, {});
+      else if (action.type === "approve") await api.post(`/projects/${slug}/gates/${action.payload?.stage}/approve`, {});
+      else if (action.type === "open_scene") return;
+      onRefresh();
+    } catch (err: any) {
+      alert(err.message);
+    }
+  };
+  const spent = Number(cost?.spent_usd || 0);
+  const budget = Number(cost?.budget_usd || 0);
+  return (
+    <aside className="rail">
+      <div className="rail-head">
+        <div className="kicker">CHAT DE PRODUCCIÓN</div>
+        <span className="live"><i /> AGENTE</span>
+      </div>
+      <div className="messages">
+        {messages.map((message) => (
+          <div key={message.id} className={`message ${message.role}`}>
+            <div className="message-body">{message.content}</div>
+            <div className="message-meta mono">{message.model || message.role}</div>
+            {!!message.actions?.length && (
+              <div className="message-actions">
+                {message.actions.map((action: any) => (
+                  <button key={action.id} className="btn tiny" onClick={() => runAction(action)}>{action.label}</button>
+                ))}
+              </div>
+            )}
+          </div>
+        ))}
+        {!messages.length && <p className="muted small">Pedile algo al agente: “hacé el guion”, “regenerá la escena 2”, “aprobá la propuesta”.</p>}
+      </div>
+      <form className="composer" onSubmit={send}>
+        <textarea className="input" rows={2} placeholder="Dirige al agente…" value={text} onChange={(event) => setText(event.target.value)} />
+        <div className="composer-row">
+          <select className="input select" value={model} onChange={(event) => setModel(event.target.value)}>
+            <option value="deepseek-flash">DEEPSEEK · FLASH</option>
+            <option value="deepseek-v4-pro">DEEPSEEK · PRO</option>
+            <option value="claude-sonnet-5.5">CLAUDE · SONNET</option>
+          </select>
+          <button className="btn send" disabled={busy || !text.trim()}>{busy ? "…" : "Enviar"}</button>
+        </div>
+      </form>
+      <div className="rail-block">
+        <div className="rail-title"><span className="kicker">REGISTRO DE DECISIONES</span><span className="mono">{String(decisions.length).padStart(2, "0")}</span></div>
+        {decisions.slice(-4).map((decision) => (
+          <div key={decision.id} className="decision">
+            <div className="mono category">{decision.category}</div>
+            <div>{decision.subject}</div>
+            <div className="muted small">{decision.chosen}</div>
+          </div>
+        ))}
+        {!decisions.length && <p className="muted small">Sin decisiones registradas todavía.</p>}
+      </div>
+      <div className="rail-block cost">
+        <div className="rail-title"><span className="kicker">GASTO</span><span className="mono">${spent.toFixed(3)} / ${budget.toFixed(2)}</span></div>
+        <div className="cost-bar"><span style={{ width: `${Math.min(100, budget ? (spent / budget) * 100 : 0)}%` }} /></div>
+      </div>
+    </aside>
+  );
+}
+
 function Workspace({ slug, onBack, onLogout }: { slug: string; onBack: () => void; onLogout: () => void }) {
   const [project, setProject] = useState<any>(null);
   const [board, setBoard] = useState<any>(null);
