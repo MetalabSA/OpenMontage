@@ -11,14 +11,14 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, Query, Request, Response
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, StreamingResponse
 from pydantic import BaseModel
 
 from api import config, db, schemas_io
 from api.deps import COOKIE_NAME, AuthContext, current_auth, get_db, require_admin, require_producer, require_viewer
 from api.errors import ApiError
 from api.events import broker
-from api.services import backups, board, chat, costs, gates, jobs, media, pipelines, projects, providers, scenes, settings, users
+from api.services import alerts, backups, board, chat, costs, gates, jobs, media, metrics, pipelines, projects, providers, scenes, settings, users
 from api.services import chat as chat_service
 
 router = APIRouter(prefix="/api")
@@ -303,6 +303,22 @@ def retention(
     conn: sqlite3.Connection = Depends(get_db),
 ) -> dict[str, Any]:
     return backups.retention_report(conn, dry_run=(body.dry_run if body else True))
+
+
+# --- observability -------------------------------------------------------
+@router.get("/admin/metrics")
+def admin_metrics(_: AuthContext = Depends(require_admin), conn: sqlite3.Connection = Depends(get_db)) -> dict[str, Any]:
+    return metrics.summary(conn)
+
+
+@router.get("/metrics/prometheus")
+def prometheus_metrics(_: AuthContext = Depends(require_viewer), conn: sqlite3.Connection = Depends(get_db)) -> PlainTextResponse:
+    return PlainTextResponse(metrics.prometheus(conn), media_type="text/plain; version=0.0.4")
+
+
+@router.post("/admin/alerts/test")
+def test_alert(_: AuthContext = Depends(require_admin), conn: sqlite3.Connection = Depends(get_db)) -> dict[str, Any]:
+    return alerts.send(conn, "test", {"ok": True})
 
 
 # --- providers / pipelines ------------------------------------------------

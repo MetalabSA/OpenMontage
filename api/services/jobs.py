@@ -212,6 +212,18 @@ async def _run(job_id: str) -> None:
             message = getattr(exc, "message", None) or str(exc)
             try:
                 _finish(conn, job_id, "failed", error=f"{code}: {message}"[:2000])
+                from api.services import alerts
+
+                await alerts.notify(
+                    conn,
+                    "job.failed",
+                    {
+                        "job_id": job_id,
+                        "project_id": (row or {}).get("project_id"),
+                        "stage": (row or {}).get("stage"),
+                        "error": f"{code}: {message}"[:500],
+                    },
+                )
             except Exception:
                 pass
         finally:

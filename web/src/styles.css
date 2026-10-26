@@ -307,3 +307,10 @@ p { margin: 0; line-height: 1.55; }
 .backup-list { display: grid; gap: 4px; }
 .backup-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 7px 0; border-bottom: 1px dashed #2a2722; font-size: 12.5px; }
 .backup-row-actions { display: flex; gap: 6px; }
+
+.ops-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+.ops-card { border: 1px solid var(--border); border-radius: 7px; background: var(--panel); padding: 14px; display: grid; gap: 4px; }
+.ops-card strong { font-family: var(--serif); font-size: 30px; font-weight: 600; }
+.stage-table .tr { grid-template-columns: 1.6fr .7fr 1fr .8fr; }
+.alerts-form { display: grid; gap: 10px; }
+.check { display: flex; align-items: center; gap: 8px; font-size: 13px; }

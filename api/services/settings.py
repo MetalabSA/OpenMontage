@@ -67,6 +67,7 @@ def read(conn: sqlite3.Connection) -> dict[str, Any]:
         "retention": db.get_setting(conn, "retention", {"projects_days": 90, "renders_days": 30}),
         "budget": db.get_setting(conn, "budget", {"total_usd": config.DEFAULT_BUDGET_USD, "mode": "warn"}),
         "backup": db.get_setting(conn, "backup", {"enabled": True, "hour": 3, "keep": config.BACKUP_KEEP}),
+        "alerts": db.get_setting(conn, "alerts", {}),
     }
 
 
@@ -82,6 +83,10 @@ def update(conn: sqlite3.Connection, payload: dict[str, Any], user_id: str | Non
         db.set_setting(conn, "budget", payload["budget"])
     if "backup" in payload and isinstance(payload["backup"], dict):
         db.set_setting(conn, "backup", payload["backup"])
+    if "alerts" in payload and isinstance(payload["alerts"], dict):
+        current = db.get_setting(conn, "alerts", {}) or {}
+        current.update(payload["alerts"])
+        db.set_setting(conn, "alerts", current)
     if "providers" in payload and isinstance(payload["providers"], dict):
         current = _stored_providers(conn)
         for provider, value in payload["providers"].items():

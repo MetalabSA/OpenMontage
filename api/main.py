@@ -34,15 +34,17 @@ async def lifespan(app: FastAPI):
     import asyncio
     from contextlib import suppress
 
+    from api.services.alerts import ops_scheduler
     from api.services.backups import backup_scheduler
     from api.watcher import watch_projects
 
     watcher = asyncio.create_task(watch_projects())
     scheduler = asyncio.create_task(backup_scheduler())
+    ops = asyncio.create_task(ops_scheduler())
     try:
         yield
     finally:
-        for task in (watcher, scheduler):
+        for task in (watcher, scheduler, ops):
             task.cancel()
             with suppress(asyncio.CancelledError):
                 await task
@@ -69,8 +71,17 @@ def create_app() -> FastAPI:
 
     @app.middleware("http")
     async def request_id(request: Request, call_next):
+        import time as _time
+
+        from api.telemetry import http_stats, log_request
+
+        started = _time.perf_counter()
         request.state.request_id = request.headers.get("x-request-id") or f"req_{uuid.uuid4().hex[:16]}"
         response = await call_next(request)
+        duration_ms = (_time.perf_counter() - started) * 1000
+        http_stats.record(response.status_code, duration_ms)
+        if request.url.path.startswith("/api/"):
+            log_request(request.state.request_id, request.method, request.url.path, response.status_code, duration_ms)
         response.headers["X-Request-ID"] = request.state.request_id
         response.headers["X-API-Version"] = "1"
         response.headers["X-Content-Type-Options"] = "nosniff"

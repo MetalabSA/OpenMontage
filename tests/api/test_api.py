@@ -373,3 +373,26 @@ def test_backups_storage_and_retention(client, auth, project):
     retention = client.post("/api/admin/retention", json={"dry_run": True}, headers=auth)
     assert retention.status_code == 200
     assert retention.json()["dry_run"] is True
+
+
+def test_metrics_prometheus_and_alert_settings(client, auth):
+    metrics = client.get("/api/admin/metrics", headers=auth)
+    assert metrics.status_code == 200, metrics.text
+    body = metrics.json()
+    assert "jobs" in body and "cost" in body and "storage" in body
+    assert "by_status" in body["jobs"]
+
+    prom = client.get("/api/metrics/prometheus", headers=auth)
+    assert prom.status_code == 200
+    assert "cabina_jobs_total" in prom.text and "cabina_disk_used_pct" in prom.text
+
+    updated = client.put(
+        "/api/settings",
+        json={"alerts": {"enabled": False, "webhook_url": "https://example.invalid/hook", "disk_pct": 85}},
+        headers=auth,
+    )
+    assert updated.status_code == 200
+    assert updated.json()["alerts"]["disk_pct"] == 85
+    test = client.post("/api/admin/alerts/test", headers=auth)
+    assert test.status_code == 200
+    assert test.json()["sent"] is False

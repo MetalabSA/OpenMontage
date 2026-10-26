@@ -228,6 +228,7 @@ function Library({ onOpen, onLogout, user }: { onOpen: (slug: string) => void; o
           <button className="btn ghost" onClick={() => (window.location.hash = "#/jobs")}>Jobs</button>
           <button className="btn ghost" onClick={() => (window.location.hash = "#/providers")}>Providers</button>
           <button className="btn ghost" onClick={() => (window.location.hash = "#/settings")}>Settings</button>
+          {user?.role === "admin" && <button className="btn ghost" onClick={() => (window.location.hash = "#/ops")}>Ops</button>}
           {user?.role === "admin" && <button className="btn ghost" onClick={() => (window.location.hash = "#/users")}>Usuarios</button>}
           <button className="btn primary" onClick={() => setShowNew(true)}>Nueva producción</button>
           <button className="btn ghost" onClick={onLogout}>Salir</button>
@@ -891,6 +892,99 @@ function ChatRail({ slug, messages, onRefresh, decisions, cost }: { slug: string
   );
 }
 
+function OpsScreen({ onBack }: { onBack: () => void }) {
+  const [metrics, setMetrics] = useState<any>(null);
+  const [alerts, setAlerts] = useState<any>({ enabled: false, webhook_url: "", on_job_failed: true, disk_pct: 80 });
+  const [status, setStatus] = useState("");
+  const [error, setError] = useState("");
+
+  const load = useCallback(async () => {
+    try {
+      setMetrics(await api.get("/admin/metrics"));
+      setError("");
+    } catch (err: any) {
+      setError(err.message);
+    }
+  }, []);
+  useEffect(() => {
+    void load();
+    api.get("/settings").then((payload) => {
+      if (payload.alerts) setAlerts({ ...alerts, ...payload.alerts });
+    }).catch(() => {});
+    const timer = window.setInterval(load, 10000);
+    return () => window.clearInterval(timer);
+  }, [load]);
+
+  const saveAlerts = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setStatus("");
+    try {
+      const payload = await api.put("/settings", { alerts });
+      setAlerts({ ...alerts, ...(payload.alerts || {}) });
+      setStatus("Alertas guardadas.");
+    } catch (err: any) {
+      setError(err.message);
+    }
+  };
+  const testAlert = async () => {
+    try {
+      const result = await api.post("/admin/alerts/test", {});
+      setStatus(result.sent ? `Alerta enviada (HTTP ${result.status}).` : `No enviada: ${result.reason || "deshabilitada"}.`);
+    } catch (err: any) {
+      setError(err.message);
+    }
+  };
+
+  const jobs = metrics?.jobs;
+  return (
+    <ScreenShell title="Observabilidad" onBack={onBack}>
+      {error && <div className="error-banner">{error}</div>}
+      {status && <div className="ok-banner">{status}</div>}
+      {!metrics ? <p className="muted">Cargando métricas…</p> : (
+        <>
+          <div className="ops-cards">
+            <div className="ops-card"><span className="kicker">ACTIVOS</span><strong>{jobs.active}</strong><span className="muted small">{jobs.by_status?.queued || 0} en cola</span></div>
+            <div className="ops-card"><span className="kicker">ESPERANDO GATE</span><strong>{jobs.awaiting_human}</strong><span className="muted small">requieren aprobación</span></div>
+            <div className="ops-card"><span className="kicker">TASA DE ÉXITO</span><strong>{jobs.success_rate_pct}%</strong><span className="muted small">{jobs.total} jobs totales</span></div>
+            <div className="ops-card"><span className="kicker">COSTO HOY</span><strong>${Number(metrics.cost.today_usd).toFixed(3)}</strong><span className="muted small">total ${Number(metrics.cost.total_usd).toFixed(3)}</span></div>
+            <div className="ops-card"><span className="kicker">DISCO</span><strong>{metrics.storage.disk_used_pct}%</strong><span className="muted small">{metrics.storage.disk_free_gb} GB libres</span></div>
+            <div className="ops-card"><span className="kicker">PROYECTOS</span><strong>{metrics.projects.count}</strong><span className="muted small">{metrics.engine.mode} · {metrics.engine.provider}</span></div>
+          </div>
+          <div className="settings-grid">
+            <section className="settings-card wide">
+              <div className="kicker">JOBS POR STAGE</div>
+              <div className="table stage-table">
+                <div className="tr head"><span>Stage</span><span>Jobs</span><span>Duración media</span><span>Costo</span></div>
+                {jobs.by_stage.map((row: any) => (
+                  <div key={row.stage} className="tr">
+                    <span>{row.stage}</span><span>{row.jobs}</span>
+                    <span>{row.avg_duration_seconds}s</span>
+                    <span className="mono">${row.cost_usd.toFixed(4)}</span>
+                  </div>
+                ))}
+                {!jobs.by_stage.length && <div className="empty-card">Sin jobs todavía.</div>}
+              </div>
+            </section>
+            <section className="settings-card wide">
+              <div className="kicker">ALERTAS POR WEBHOOK</div>
+              <form className="alerts-form" onSubmit={saveAlerts}>
+                <label className="check"><input type="checkbox" checked={!!alerts.enabled} onChange={(event) => setAlerts({ ...alerts, enabled: event.target.checked })} /> Habilitadas</label>
+                <input className="input" type="url" placeholder="https://hooks.slack.com/…" value={alerts.webhook_url} onChange={(event) => setAlerts({ ...alerts, webhook_url: event.target.value })} />
+                <label className="field inline"><span>Umbral de disco (%)</span><input className="input" type="number" value={alerts.disk_pct} onChange={(event) => setAlerts({ ...alerts, disk_pct: Number(event.target.value) })} /></label>
+                <div className="backup-actions">
+                  <button className="btn primary">Guardar alertas</button>
+                  <button type="button" className="btn ghost" onClick={testAlert}>Probar</button>
+                </div>
+              </form>
+              <p className="muted small">Los jobs fallidos y el disco por encima del umbral disparan el webhook (máx. 1 alerta de disco por día).</p>
+            </section>
+          </div>
+        </>
+      )}
+    </ScreenShell>
+  );
+}
+
 function UsersScreen({ onBack }: { onBack: () => void }) {
   const [users, setUsers] = useState<any[]>([]);
   const [tokens, setTokens] = useState<any[]>([]);
@@ -1256,6 +1350,7 @@ export default function App() {
   if (route === "#/jobs") return <JobsScreen onBack={() => (window.location.hash = "#/")} onOpenProject={(next) => (window.location.hash = `#/p/${next}`)} />;
   if (route === "#/providers") return <ProvidersScreen onBack={() => (window.location.hash = "#/")} />;
   if (route === "#/settings") return <SettingsScreen onBack={() => (window.location.hash = "#/")} />;
+  if (route === "#/ops") return <OpsScreen onBack={() => (window.location.hash = "#/")} />;
   if (route === "#/users") return <UsersScreen onBack={() => (window.location.hash = "#/")} />;
   return <Library onOpen={(next) => (window.location.hash = `#/p/${next}`)} onLogout={logout} user={user} />;
 }
