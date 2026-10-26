@@ -93,11 +93,14 @@ def build(conn, slug: str) -> dict[str, Any]:
             }
         )
         if item.get("gated"):
-            status = "pending"
-            if item.get("status") == "completed" and item.get("human_approved"):
+            if item.get("status") == "awaiting_human":
+                status = "pending"
+            elif item.get("status") == "completed" and item.get("human_approved"):
                 status = "approved"
             elif item.get("status") == "completed" and item.get("human_approved") is False:
                 status = "rejected"
+            else:
+                status = "not_required"
             gates.append(
                 {
                     "stage": item.get("name"),

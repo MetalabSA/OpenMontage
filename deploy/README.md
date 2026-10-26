@@ -130,6 +130,22 @@ No necesita `.env` ni dominio raíz.
 > (protección anti DNS-rebinding) y sin esa variable responde `400 Bad Request`.
 > El default sigue siendo loopback-only cuando la variable no está definida.
 
+### 2.3 Motor del agente (F4)
+
+`openmontage-studio` ejecuta cada stage con **Claude Code CLI**. La CLI ya viene en la imagen
+y puede apuntar tanto a Anthropic como al endpoint compatible de DeepSeek.
+
+| Variable | Valores | Uso |
+|---|---|---|
+| `OM_AGENT_MODE` | `fake` \| `claude` | `fake` escribe artefactos válidos mínimos (sin costo) para probar la orquestación; `claude` ejecuta el modelo real |
+| `OM_ENGINE_PROVIDER` | `deepseek` \| `anthropic` | Proveedor del modelo |
+| `OM_ENGINE_API_KEY` | clave | Requerida en modo `claude` (también puede guardarse desde Settings) |
+| `OM_ENGINE_BASE_URL` | URL | Default DeepSeek: `https://api.deepseek.com/anthropic` |
+| `OM_ENGINE_MODEL` | modelo | Default `deepseek-flash`; D13 usa `deepseek-v4-pro` en `proposal` y `scene_plan` vía el mapa por stage |
+
+Sin clave configurada el modo `claude` falla con `provider_unavailable` y el job queda `failed`
+con el motivo explícito. El mapa `stage → modelo` se edita en Settings (`engine.default_map`).
+
 ## 3. Primer arranque
 
 1. Abrir `https://agent.tudominio.com` (Basic Auth de EasyPanel primero).
