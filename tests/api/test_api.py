@@ -186,3 +186,49 @@ def test_pipelines_and_providers(client, auth):
     providers = client.get("/api/providers", headers=auth)
     assert providers.status_code == 200
     assert "composition_runtimes" in providers.json()
+
+
+def test_pipeline_runs_until_gate_then_waits(client, auth):
+    import uuid
+
+    created = client.post(
+        "/api/projects",
+        json={"title": f"Pipeline {uuid.uuid4().hex[:6]}", "pipeline": "animated-explainer"},
+        headers=auth,
+    )
+    assert created.status_code == 201
+    slug = created.json()["slug"]
+    job = client.post("/api/jobs", json={"project_id": slug, "stage": "research"}, headers=auth)
+    assert job.status_code == 202
+
+    deadline = time.time() + 15
+    status = None
+    board = {}
+    while time.time() < deadline:
+        board = client.get(f"/api/projects/{slug}/board", headers=auth).json()
+        status = board["project"]["status"]
+        if status == "awaiting_human":
+            break
+        time.sleep(0.1)
+    assert status == "awaiting_human"
+    gates = [g for g in board["gates"] if g["status"] == "pending"]
+    assert gates and gates[0]["stage"] == "proposal"
+
+    checkpoints = client.get(f"/api/projects/{slug}/checkpoints", headers=auth).json()["data"]
+    proposal = next(item for item in checkpoints if item["stage"] == "proposal")
+    assert proposal["status"] == "awaiting_human"
+    assert proposal["human_approved"] is False
+
+    approved = client.post(f"/api/projects/{slug}/gates/proposal/approve", json={}, headers=auth)
+    assert approved.status_code == 200, approved.text
+    assert approved.json()["job"]["stage"] == "script"
+
+    deadline = time.time() + 15
+    script = []
+    while time.time() < deadline:
+        checkpoints = client.get(f"/api/projects/{slug}/checkpoints", headers=auth).json()["data"]
+        script = [item for item in checkpoints if item["stage"] == "script"]
+        if script and script[0]["status"] == "awaiting_human":
+            break
+        time.sleep(0.1)
+    assert script and script[0]["status"] == "awaiting_human"

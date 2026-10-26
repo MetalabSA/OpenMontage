@@ -23,6 +23,19 @@ SIM_SPEED = float(os.environ.get("OM_SIM_SPEED", "0.25"))
 DEFAULT_BUDGET_USD = float(os.environ.get("OM_DEFAULT_BUDGET_USD", "2.0"))
 DEFAULT_ENGINE = os.environ.get("OM_ENGINE", "claude-code")
 
+# Agent execution (F4). "fake" writes schema-valid placeholder artifacts so the
+# orchestration can be exercised before an engine key is configured.
+AGENT_MODE = os.environ.get("OM_AGENT_MODE", "fake").strip().lower()
+ENGINE_PROVIDER = os.environ.get("OM_ENGINE_PROVIDER", "deepseek").strip().lower()
+ENGINE_API_KEY = os.environ.get("OM_ENGINE_API_KEY", "").strip()
+ENGINE_BASE_URL = os.environ.get("OM_ENGINE_BASE_URL", "").strip()
+ENGINE_MODEL = os.environ.get("OM_ENGINE_MODEL", "deepseek-flash").strip()
+AGENT_TIMEOUT = int(os.environ.get("OM_AGENT_TIMEOUT", "1200"))
+AGENT_MAX_ATTEMPTS = int(os.environ.get("OM_AGENT_MAX_ATTEMPTS", "2"))
+EVENTS_PATH = Path(os.environ.get("OM_EVENTS_PATH") or (DB_PATH.parent / "events.jsonl")).resolve()
+
+DEEPSEEK_BASE_URL = "https://api.deepseek.com/anthropic"
+
 # Hybrid model map (D13): cheap Flash by default, Pro for decision stages.
 DEFAULT_MODEL_MAP = {
     "research": "deepseek-flash",

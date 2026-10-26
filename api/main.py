@@ -27,7 +27,19 @@ async def lifespan(app: FastAPI):
         security.ensure_admin(conn)
     finally:
         conn.close()
-    yield
+
+    import asyncio
+    from contextlib import suppress
+
+    from api.watcher import watch_projects
+
+    watcher = asyncio.create_task(watch_projects())
+    try:
+        yield
+    finally:
+        watcher.cancel()
+        with suppress(asyncio.CancelledError):
+            await watcher
 
 
 def create_app() -> FastAPI:

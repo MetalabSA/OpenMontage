@@ -97,6 +97,7 @@ async def approve(
     broker.publish("checkpoint", {"stage": stage, "status": "completed", "human_approved": True}, project_id=slug)
     broker.publish("gate", {"stage": stage, "status": "approved"}, project_id=slug)
 
+    jobs.resolve_paused(conn, slug, stage, "succeeded")
     next_stage = pipelines.next_stage(project["pipeline"], stage)
     job = None
     if next_stage:
@@ -160,6 +161,7 @@ async def reject(
     db.audit(conn, user_id, "gate.rejected", f"{slug}:{stage}", {"note": note.strip()})
     broker.publish("gate", {"stage": stage, "status": "rejected", "note": note.strip()}, project_id=slug)
 
+    jobs.resolve_paused(conn, slug, stage, "succeeded")
     job = await jobs.create(
         conn,
         project_id=slug,

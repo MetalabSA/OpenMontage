@@ -22,6 +22,7 @@ os.environ["OM_API_TOKEN"] = "test-token"
 os.environ["OM_ADMIN_EMAIL"] = "admin@test.local"
 os.environ["OM_ADMIN_PASSWORD"] = "secret123"
 os.environ["OM_SIM_SPEED"] = "0.1"
+os.environ["OM_AGENT_MODE"] = "fake"
 
 from fastapi.testclient import TestClient  # noqa: E402
 

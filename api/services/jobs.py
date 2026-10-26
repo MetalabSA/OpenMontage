@@ -174,41 +174,58 @@ async def _run(job_id: str) -> None:
             if row.get("cancel_requested"):
                 _finish(conn, job_id, "cancelled")
                 return
-            conn.execute(
-                "UPDATE jobs SET status='running', started_at=? WHERE id=?", (db.now(), job_id)
-            )
+            conn.execute("UPDATE jobs SET status='running', started_at=? WHERE id=?", (db.now(), job_id))
             conn.commit()
             _emit(conn, job_id, "job", {"status": "running", "stage": row.get("stage"), "progress": {"percent": 5, "message": "iniciando"}})
 
-            steps = [
-                (20, "cargando contexto"),
-                (45, "planificando"),
-                (70, "ejecutando herramientas"),
-                (90, "validando artefacto"),
-            ]
-            for percent, message in steps:
-                await asyncio.sleep(max(config.SIM_SPEED, 0))
-                current = _row(conn, job_id)
-                if current and current.get("cancel_requested"):
-                    _finish(conn, job_id, "cancelled")
-                    return
-                conn.execute(
-                    "UPDATE jobs SET progress_json=? WHERE id=?",
-                    (json.dumps({"percent": percent, "message": message}), job_id),
-                )
-                conn.commit()
-                _emit(conn, job_id, "job", {"status": "running", "progress": {"percent": percent, "message": message}})
+            from api import agents
 
-            result = {"simulated": True, "stage": row.get("stage"), "scene_id": row.get("scene_id")}
-            _finish(conn, job_id, "succeeded", result=result)
-        except Exception as exc:  # pragma: no cover - defensive
+            result = await agents.execute_job(
+                conn,
+                _public(row),
+                progress=lambda percent, message: _progress(conn, job_id, percent, message),
+                emit=lambda event_type, payload: _emit(conn, job_id, event_type, payload),
+            )
+            status = result.get("status") or "succeeded"
+            _finish(
+                conn,
+                job_id,
+                status,
+                result={k: v for k, v in result.items() if k != "status"},
+                cost=float(result.get("cost") or 0),
+            )
+            next_stage = result.get("next_stage")
+            if status == "succeeded" and next_stage:
+                current = _row(conn, job_id)
+                if current and not current.get("cancel_requested"):
+                    try:
+                        await create(
+                            conn,
+                            project_id=current["project_id"],
+                            stage=next_stage,
+                            instruction=f"Continuar pipeline: {next_stage}",
+                        )
+                    except ApiError:
+                        pass
+        except Exception as exc:  # agent and validation failures are job failures
+            code = getattr(exc, "code", "agent_failed")
+            message = getattr(exc, "message", None) or str(exc)
             try:
-                _finish(conn, job_id, "failed", error=str(exc))
+                _finish(conn, job_id, "failed", error=f"{code}: {message}"[:2000])
             except Exception:
                 pass
         finally:
             conn.close()
             _TASKS.pop(job_id, None)
+
+
+def _progress(conn: sqlite3.Connection, job_id: str, percent: int, message: str) -> None:
+    conn.execute(
+        "UPDATE jobs SET progress_json=? WHERE id=?",
+        (json.dumps({"percent": percent, "message": message}), job_id),
+    )
+    conn.commit()
+    _emit(conn, job_id, "job", {"status": "running", "progress": {"percent": percent, "message": message}})
 
 
 def _finish(
@@ -218,16 +235,33 @@ def _finish(
     *,
     result: dict | None = None,
     error: str | None = None,
+    cost: float | None = None,
 ) -> None:
-    progress = {"percent": 100, "message": "completado"} if status == "succeeded" else None
-    if progress:
-        conn.execute("UPDATE jobs SET progress_json=? WHERE id=?", (json.dumps(progress), job_id))
+    progress = {"percent": 100, "message": "esperando aprobación" if status == "awaiting_human" else "completado"}
+    conn.execute("UPDATE jobs SET progress_json=? WHERE id=?", (json.dumps(progress), job_id))
     conn.execute(
-        "UPDATE jobs SET status=?, finished_at=?, result_json=?, error=? WHERE id=?",
-        (status, db.now(), json.dumps(result) if result else None, error, job_id),
+        "UPDATE jobs SET status=?, finished_at=?, result_json=?, error=?, cost_usd=COALESCE(?, cost_usd) WHERE id=?",
+        (
+            status,
+            db.now(),
+            json.dumps(result) if result is not None else None,
+            error,
+            cost,
+            job_id,
+        ),
     )
     conn.commit()
     _emit(conn, job_id, "job", {"status": status, "error": error, "result": result, "progress": progress})
+
+
+def resolve_paused(conn: sqlite3.Connection, project_id: str, stage: str, outcome: str = "succeeded") -> None:
+    """Free the paused gate job once a human approved/rejected the stage."""
+    rows = conn.execute(
+        "SELECT id FROM jobs WHERE project_id=? AND stage=? AND status='awaiting_human'",
+        (project_id, stage),
+    ).fetchall()
+    for row in rows:
+        _finish(conn, row["id"], outcome, result={"gate_resolution": outcome, "stage": stage})
 
 
 def cancel(conn: sqlite3.Connection, job_id: str, user_id: str | None = None) -> dict[str, Any]:
@@ -236,6 +270,9 @@ def cancel(conn: sqlite3.Connection, job_id: str, user_id: str | None = None) ->
         raise ApiError(404, "job_not_found", f"Unknown job {job_id!r}")
     if row["status"] in {"succeeded", "failed", "cancelled"}:
         raise ApiError(409, "conflict", f"Job already finished ({row['status']})")
+    from api import agents
+
+    agents.terminate(job_id)
     if row["status"] == "queued":
         _finish(conn, job_id, "cancelled")
     else:
