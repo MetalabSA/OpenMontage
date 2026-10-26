@@ -38,6 +38,36 @@ Cambiar la contraseña desde **Usuarios** o `POST /api/auth/password`.
 - **Timeline**: pistas de video/audio/captions según los artefactos.
 - **Renders**: player del MP4 final.
 
+## 4.1 Studio vs Board
+
+- **Studio** (`studio.metalabia.com`): la app de trabajo. Crear, aprobar gates, chatear, regenerar escenas, ver jobs, settings, usuarios y Ops.
+- **Board** (`board.metalabia.com`): vista read-only tipo “living storyboard” para mostrar avance a otras personas. No permite acciones y usa Basic Auth.
+
+## 4.2 Tiempos y gates
+
+| Etapa | Gate | Tiempo típico |
+|---|---|---|
+| research | no | 2-5 min |
+| proposal | sí | 3-8 min |
+| script | sí | 1-3 min |
+| scene_plan | sí (acá aparece el storyboard) | 4-8 min |
+| assets | sí | 3-8 min |
+| edit | sí | 2-5 min |
+| compose | sí (el render ya está hecho) | 8-15 min |
+| publish | sí | 1-2 min |
+
+Mientras un job corre, el workspace muestra un banner **TRABAJANDO** con etapa, cronómetro, duración típica y botón para cancelar. Si el storyboard está vacío, mirá el banner o la pestaña **Jobs**: puede que falte aprobar un gate anterior.
+
+## 4.3 Corregir el guion
+
+El mejor momento es el **gate de `script`**, antes de aprobarlo:
+
+1. Abrí la pestaña **Guion** y leé las secciones.
+2. Si hay que cambiar una palabra o frase, **Rechazá** el gate con una nota exacta: “En la sección 2 cambiá ‘X’ por ‘Y’”.
+3. El agente regenera el guion; revisá y aprobá.
+
+También podés pedirlo por chat (“en la sección 2 cambiá X por Y”) antes de aprobar. Si ya aprobaste y avanzó `scene_plan`, hay que volver atrás y re-ejecutar el guion; avisá si querés que agreguemos un editor inline con invalidación automática.
+
 ## 5. Settings, Ops y Usuarios
 
 - **Settings**: mapa de modelo por stage, presupuesto, retención y claves de proveedores (solo escritura).
