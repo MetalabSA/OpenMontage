@@ -207,6 +207,7 @@ function Library({ onOpen, onLogout, user }: { onOpen: (slug: string) => void; o
     setError("");
     try {
       const project = await api.post("/projects", { title, pipeline, platform });
+      await api.post("/jobs", { project_id: project.slug, stage: "research" }).catch(() => {});
       setShowNew(false);
       setTitle("");
       onOpen(project.slug);
@@ -349,7 +350,7 @@ function GateBar({ gate, onApprove, onReject }: { gate: any; onApprove: (note: s
   );
 }
 
-function Storyboard({ slug, scenes, onRefresh, onOpen }: { slug: string; scenes: any[]; onRefresh: () => void; onOpen: (scene: any) => void }) {
+function Storyboard({ slug, scenes, onRefresh, onOpen, activeStage, canStart, onStart }: { slug: string; scenes: any[]; onRefresh: () => void; onOpen: (scene: any) => void; activeStage?: string; canStart?: boolean; onStart?: () => void }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [dragId, setDragId] = useState<string | null>(null);
   const [overId, setOverId] = useState<string | null>(null);
@@ -388,7 +389,12 @@ function Storyboard({ slug, scenes, onRefresh, onOpen }: { slug: string; scenes:
     return (
       <div className="empty-card">
         <div className="kicker">SIN ESCENAS TODAVÍA</div>
-        <p>Cuando el pipeline llegue a <code>scene_plan</code>, el storyboard aparece acá con sus tarjetas, costos y scores.</p>
+        {activeStage ? (
+          <p>El agente está trabajando en <code>{activeStage}</code>. El storyboard se llena cuando termina <code>scene_plan</code> (4-8 min).</p>
+        ) : (
+          <p>El storyboard se llena cuando el pipeline llega a <code>scene_plan</code>. Antes se ejecutan research, proposal y script (con sus gates).</p>
+        )}
+        {canStart && <button className="btn primary" onClick={onStart}>Iniciar investigación</button>}
       </div>
     );
   }
@@ -1115,6 +1121,64 @@ function UsersScreen({ onBack }: { onBack: () => void }) {
   );
 }
 
+const STAGE_LABELS: Record<string, string> = {
+  research: "Investigación",
+  proposal: "Propuesta",
+  script: "Guion",
+  scene_plan: "Plan de escenas",
+  assets: "Generación de assets",
+  edit: "Edición",
+  compose: "Render",
+  publish: "Publicación",
+};
+const STAGE_ESTIMATES: Record<string, string> = {
+  research: "2-5 min",
+  proposal: "3-8 min",
+  script: "1-3 min",
+  scene_plan: "4-8 min",
+  assets: "3-8 min",
+  edit: "2-5 min",
+  compose: "8-15 min",
+  publish: "1-2 min",
+};
+
+function JobBanner({ job, onCancel, onJobs }: { job: any; onCancel: () => void; onJobs: () => void }) {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+  if (!job) return null;
+  const running = job.status === "running" || job.status === "queued";
+  if (!running) {
+    if (job.status !== "failed") return null;
+    return (
+      <div className="error-banner job-banner">
+        <div className="job-banner-head"><strong>El job de {STAGE_LABELS[job.stage] || job.stage} falló</strong><span className="mono">{job.id?.slice(0, 12)}</span></div>
+        <p className="small">{job.error || "Error desconocido"}</p>
+        <button className="btn tiny" onClick={onJobs}>Ver jobs y log</button>
+      </div>
+    );
+  }
+  const started = job.started_at ? new Date(job.started_at).getTime() : now;
+  const seconds = Math.max(0, Math.floor((now - started) / 1000));
+  const elapsed = `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;
+  return (
+    <div className="job-banner working">
+      <div className="job-banner-head">
+        <span className="live"><i /> TRABAJANDO</span>
+        <strong>{STAGE_LABELS[job.stage] || job.stage}</strong>
+        <span className="mono">{elapsed}</span>
+      </div>
+      <div className="job-bar indeterminate"><span /></div>
+      <p className="muted small">
+        {job.progress?.message || "El agente está ejecutando la etapa"} · duración típica {STAGE_ESTIMATES[job.stage] || "unos minutos"} · podés seguir usando el resto del studio
+      </p>
+      <button className="btn tiny danger" onClick={onCancel}>Cancelar job</button>
+    </div>
+  );
+}
+
 function Workspace({ slug, onBack, onLogout }: { slug: string; onBack: () => void; onLogout: () => void }) {
   const [project, setProject] = useState<any>(null);
   const [board, setBoard] = useState<any>(null);
@@ -1122,22 +1186,25 @@ function Workspace({ slug, onBack, onLogout }: { slug: string; onBack: () => voi
   const [brief, setBrief] = useState<any>(null);
   const [script, setScript] = useState<any>(null);
   const [assets, setAssets] = useState<any[]>([]);
+  const [jobs, setJobs] = useState<any[]>([]);
   const [tab, setTab] = useState("storyboard");
   const [selected, setSelected] = useState<any>(null);
   const [error, setError] = useState("");
 
   const refresh = useCallback(async () => {
     try {
-      const [projectData, boardData, chatData, assetData] = await Promise.all([
+      const [projectData, boardData, chatData, assetData, jobData] = await Promise.all([
         api.get(`/projects/${slug}`),
         api.get(`/projects/${slug}/board`),
         api.get(`/projects/${slug}/chat`),
         api.get(`/projects/${slug}/assets`).catch(() => ({ assets: [] })),
+        api.get(`/jobs?project_id=${slug}&limit=5`).catch(() => ({ data: [] })),
       ]);
       setProject(projectData);
       setBoard(boardData);
       setChat(chatData.data || []);
       setAssets(assetData.assets || []);
+      setJobs(jobData.data || []);
       setBrief(await api.get(`/projects/${slug}/artifacts/brief`).catch(() => null));
       setScript(await api.get(`/projects/${slug}/artifacts/script`).catch(() => null));
       setError("");
@@ -1193,6 +1260,26 @@ function Workspace({ slug, onBack, onLogout }: { slug: string; onBack: () => voi
   if (!project || !board) return <div className="page loading">Cargando producción…</div>;
 
   const pendingGate = (board.gates || []).find((gate: any) => gate.status === "pending");
+  const activeJob = jobs.find((job: any) => job.status === "running" || job.status === "queued");
+  const latestJob = activeJob || (project.status !== "ready" ? jobs.find((job: any) => job.status === "failed") : null);
+  const startPipeline = async () => {
+    try {
+      await api.post("/jobs", { project_id: slug, stage: "research" });
+      await refresh();
+    } catch (err: any) {
+      setError(err.message);
+    }
+  };
+  const cancelJob = async () => {
+    if (!activeJob) return;
+    try {
+      await api.post(`/jobs/${activeJob.id}/cancel`, {});
+      await refresh();
+    } catch (err: any) {
+      setError(err.message);
+    }
+  };
+
   const approve = async (note: string) => {
     await api.post(`/projects/${slug}/gates/${pendingGate.stage}/approve`, { note });
     await refresh();
@@ -1240,6 +1327,7 @@ function Workspace({ slug, onBack, onLogout }: { slug: string; onBack: () => voi
           </div>
         </aside>
         <main className="board">
+          <JobBanner job={latestJob} onCancel={cancelJob} onJobs={() => (window.location.hash = "#/jobs")} />
           <StageRail stages={board.stages || []} />
           {pendingGate && <GateBar gate={pendingGate} onApprove={approve} onReject={reject} />}
           <div className="tabs" role="tablist" aria-label="Vistas de producción">
@@ -1282,7 +1370,17 @@ function Workspace({ slug, onBack, onLogout }: { slug: string; onBack: () => voi
                 ) : <div className="empty-card"><div className="kicker">SIN GUION</div><p>Aprobá la propuesta para que el agente escriba el guion.</p></div>}
               </div>
             )}
-            {tab === "storyboard" && <Storyboard slug={slug} scenes={board.scenes || []} onRefresh={refresh} onOpen={setSelected} />}
+            {tab === "storyboard" && (
+              <Storyboard
+                slug={slug}
+                scenes={board.scenes || []}
+                onRefresh={refresh}
+                onOpen={setSelected}
+                activeStage={activeJob?.stage}
+                canStart={!activeJob && (project.status === "draft" || project.status === "failed")}
+                onStart={startPipeline}
+              />
+            )}
             {tab === "timeline" && <Timeline scenes={board.scenes || []} assets={assets} script={script} />}
             {tab === "renders" && (
               <div className="renders">

@@ -323,3 +323,13 @@ p { margin: 0; line-height: 1.55; }
 .stage-table .tr { grid-template-columns: 1.6fr .7fr 1fr .8fr; }
 .alerts-form { display: grid; gap: 10px; }
 .check { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+
+.job-banner { border: 1px solid #4d3d1c; background: #2a2113; border-radius: 7px; padding: 10px 12px; margin-bottom: 12px; display: grid; gap: 7px; }
+.job-banner.working { border-color: #55301f; background: var(--accent-soft); }
+.job-banner-head { display: flex; align-items: center; gap: 10px; }
+.job-banner-head strong { font-size: 14px; }
+.job-banner-head .mono { margin-left: auto; font-size: 11px; }
+.job-bar { height: 4px; background: #111; border-radius: 999px; overflow: hidden; }
+.job-bar span { display: block; height: 100%; background: linear-gradient(90deg, var(--accent), var(--pink)); }
+.job-bar.indeterminate span { width: 35%; animation: job-slide 1.6s ease-in-out infinite; }
+@keyframes job-slide { 0% { transform: translateX(-100%); } 100% { transform: translateX(320%); } }
