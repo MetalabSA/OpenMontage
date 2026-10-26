@@ -78,6 +78,9 @@ COPY . .
 RUN chmod +x deploy/entrypoint.sh \
     && ln -sf /app/deploy/entrypoint.sh /usr/local/bin/openmontage-entrypoint
 
+# --- Cabina Studio SPA (served by the API at /) ---------------------------
+RUN cd web && npm install --no-audit --no-fund && npm run build && npm cache clean --force
+
 # --- Remotion composition engine ------------------------------------------
 # Installs the versions declared in remotion-composer/package.json (upstream 4.x).
 # The macOS-only 4.0.250 pin used during local development is NOT applied here:

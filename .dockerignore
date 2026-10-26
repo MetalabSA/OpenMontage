@@ -17,3 +17,6 @@ music_library
 .DS_Store
 Trial_Reels.pdf
 deploy/*.zip
+
+web/node_modules
+web/dist

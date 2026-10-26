@@ -6,9 +6,11 @@ import os
 import uuid
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from api import config, db
 from api.errors import ApiError, api_error_handler, unhandled_handler, validation_handler
@@ -73,6 +75,22 @@ def create_app() -> FastAPI:
     app.add_exception_handler(RequestValidationError, validation_handler)
     app.add_exception_handler(Exception, unhandled_handler)
     app.include_router(router)
+
+    web_dist = config.ROOT / "web" / "dist"
+    if web_dist.is_dir():
+        assets = web_dist / "assets"
+        if assets.is_dir():
+            app.mount("/assets", StaticFiles(directory=assets), name="spa-assets")
+
+        @app.get("/{path:path}", include_in_schema=False)
+        async def spa(path: str):
+            if path.startswith("api/"):
+                raise HTTPException(status_code=404)
+            candidate = (web_dist / path).resolve()
+            if path and candidate.is_file() and web_dist.resolve() in candidate.parents:
+                return FileResponse(candidate)
+            return FileResponse(web_dist / "index.html")
+
     return app
 
 
