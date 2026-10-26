@@ -179,7 +179,7 @@ def _project_cost(directory: Path) -> float:
         data = schemas_io.read_json(checkpoint, {}) or {}
         snapshot = data.get("cost_snapshot") or {}
         try:
-            total += float(snapshot.get("spent_usd") or snapshot.get("total_usd") or 0)
+            total += float(snapshot.get("spent_usd") or 0)
         except (TypeError, ValueError):
             continue
     return round(total, 4)

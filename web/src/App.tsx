@@ -60,6 +60,9 @@ function useMedia(path?: string | null) {
 function MediaImage({ path, alt = "" }: { path?: string | null; alt?: string }) {
   const src = useMedia(path);
   if (!src) return <div className="media-placeholder" />;
+  if (path && /\.(mp4|webm|mov)$/i.test(path.split("?")[0])) {
+    return <video className="media" src={src} muted playsInline preload="metadata" />;
+  }
   return <img className="media" src={src} alt={alt} />;
 }
 
