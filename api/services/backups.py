@@ -16,6 +16,7 @@ from typing import Any
 
 from api import config, db
 from api.errors import ApiError
+from api.services import remote_storage
 
 NAME_RE = r"cabina-[0-9]{8}-[0-9]{6}\.tar\.gz"
 
@@ -106,8 +107,23 @@ def create_backup(conn: sqlite3.Connection, actor: str | None, note: str | None 
         "project_count": len(projects),
         "note": note,
     }
-    (config.BACKUPS_DIR / f"{name}.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
-    db.audit(conn, actor, "backup.created", name, {"size": size, "projects": len(projects)})
+    meta_path = config.BACKUPS_DIR / f"{name}.json"
+    if remote_storage.enabled():
+        try:
+            remote_storage.upload(path, remote_storage.key_for(name))
+            meta["remote"] = True
+            meta["remote_key"] = remote_storage.key_for(name)
+        except Exception as exc:  # local backup stays valid
+            meta["remote"] = False
+            meta["remote_error"] = str(exc)[:300]
+            db.audit(conn, actor, "backup.remote_failed", name, {"error": str(exc)[:300]})
+    meta_path.write_text(json.dumps(meta, indent=2), encoding="utf-8")
+    if remote_storage.enabled() and meta.get("remote"):
+        try:
+            remote_storage.upload(meta_path, remote_storage.key_for(f"{name}.json"), "application/json")
+        except Exception:
+            pass
+    db.audit(conn, actor, "backup.created", name, {"size": size, "projects": len(projects), "remote": bool(meta.get("remote"))})
     _prune_backups(conn, actor)
     return meta
 
@@ -128,23 +144,66 @@ def _backup_path(name: str) -> Path:
     return path
 
 
+def local_backup_path(name: str) -> Path | None:
+    _meta_path(name)
+    path = (config.BACKUPS_DIR / name).resolve()
+    if config.BACKUPS_DIR.resolve() not in path.parents:
+        raise ApiError(403, "path_escapes_project", "Invalid backup path")
+    return path if path.is_file() else None
+
+
 def list_backups() -> dict[str, Any]:
-    if not config.BACKUPS_DIR.is_dir():
-        return {"data": [], "backups_dir": str(config.BACKUPS_DIR)}
-    items = []
-    for meta_path in sorted(config.BACKUPS_DIR.glob("*.tar.gz.json"), reverse=True):
+    items: dict[str, dict[str, Any]] = {}
+    if config.BACKUPS_DIR.is_dir():
+        for meta_path in sorted(config.BACKUPS_DIR.glob("*.tar.gz.json"), reverse=True):
+            try:
+                meta = json.loads(meta_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            meta["local"] = (config.BACKUPS_DIR / meta["name"]).is_file()
+            items[meta["name"]] = meta
+    remote_error = None
+    if remote_storage.enabled():
         try:
-            items.append(json.loads(meta_path.read_text(encoding="utf-8")))
-        except (OSError, json.JSONDecodeError):
-            continue
-    return {"data": items, "backups_dir": str(config.BACKUPS_DIR)}
+            keys = remote_storage.list_keys(remote_storage.key_for(""))
+            for item in keys:
+                key = item["key"]
+                if not key.endswith(".tar.gz"):
+                    continue
+                name = key.rsplit("/", 1)[-1]
+                if name in items:
+                    items[name]["remote"] = True
+                    continue
+                meta = remote_storage.get_json(remote_storage.key_for(f"{name}.json")) or {}
+                meta.update({"name": name, "size": item["size"], "created_at": meta.get("created_at") or item["last_modified"], "remote": True, "local": False})
+                items[name] = meta
+        except Exception as exc:
+            remote_error = str(exc)[:300]
+    ordered = sorted(items.values(), key=lambda item: item.get("created_at") or "", reverse=True)
+    return {
+        "data": ordered,
+        "backups_dir": str(config.BACKUPS_DIR),
+        "remote_enabled": remote_storage.enabled(),
+        "remote_bucket": config.S3_BUCKET or None,
+        "remote_endpoint": config.S3_ENDPOINT or None,
+        "remote_error": remote_error,
+    }
 
 
 def verify_backup(name: str) -> dict[str, Any]:
-    path = _backup_path(name)
+    _meta_path(name)
     report: dict[str, Any] = {"name": name, "valid": True, "checks": []}
     with tempfile.TemporaryDirectory(prefix="cabina-restore-") as tmp:
         target = Path(tmp)
+        path = local_backup_path(name)
+        if path is None:
+            if not remote_storage.enabled():
+                raise ApiError(404, "not_found", "Backup not found")
+            path = target / name
+            remote_storage.download(remote_storage.key_for(name), path)
+            report["source"] = "remote"
+        else:
+            report["source"] = "local"
         with tarfile.open(path, "r:gz") as archive:
             archive.extractall(target, filter="data")
         manifest_path = target / "manifest.json"
@@ -200,16 +259,32 @@ def verify_backup(name: str) -> dict[str, Any]:
 
 
 def _prune_backups(conn: sqlite3.Connection, actor: str | None) -> None:
+    remote = remote_storage.enabled()
     metas = sorted(config.BACKUPS_DIR.glob("*.tar.gz.json"), reverse=True)
-    keep = max(1, config.BACKUP_KEEP)
+    keep = max(1, config.BACKUP_LOCAL_KEEP if remote else config.BACKUP_KEEP)
     for meta_path in metas[keep:]:
         name = meta_path.name.removesuffix(".json")
         try:
+            if remote:
+                # Never drop the only local copy until the remote object exists.
+                meta = json.loads(meta_path.read_text(encoding="utf-8"))
+                if not meta.get("remote"):
+                    continue
             meta_path.unlink(missing_ok=True)
             (config.BACKUPS_DIR / name).unlink(missing_ok=True)
-            db.audit(conn, actor, "backup.pruned", name)
+            db.audit(conn, actor, "backup.pruned", name, {"scope": "local"})
         except OSError:
             continue
+    if remote:
+        try:
+            keys = remote_storage.list_keys(remote_storage.key_for(""))
+            names = sorted({item["key"].rsplit("/", 1)[-1] for item in keys if item["key"].endswith(".tar.gz")}, reverse=True)
+            for name in names[max(1, config.BACKUP_REMOTE_KEEP):]:
+                remote_storage.delete(remote_storage.key_for(name))
+                remote_storage.delete(remote_storage.key_for(f"{name}.json"))
+                db.audit(conn, actor, "backup.pruned", name, {"scope": "remote"})
+        except Exception:
+            pass
 
 
 def storage_stats() -> dict[str, Any]:
@@ -227,6 +302,9 @@ def storage_stats() -> dict[str, Any]:
         "backups_bytes": _dir_size(config.BACKUPS_DIR),
         "backups_count": len(list(config.BACKUPS_DIR.glob("*.tar.gz"))) if config.BACKUPS_DIR.is_dir() else 0,
         "backups_dir": str(config.BACKUPS_DIR),
+        "remote_enabled": remote_storage.enabled(),
+        "remote_bucket": config.S3_BUCKET or None,
+        "remote_endpoint": config.S3_ENDPOINT or None,
     }
 
 

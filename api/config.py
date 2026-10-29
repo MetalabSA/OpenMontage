@@ -47,6 +47,15 @@ BACKUPS_DIR = Path(os.environ.get("OM_BACKUPS_DIR") or (DATA_DIR / "backups")).r
 BACKUP_KEEP = int(os.environ.get("OM_BACKUP_KEEP", "7"))
 BACKUP_INCLUDE_VOICES = os.environ.get("OM_BACKUP_INCLUDE_VOICES", "0") == "1"
 DISK_WARN_PCT = int(os.environ.get("OM_DISK_WARN_PCT", "80"))
+S3_ENDPOINT = (os.environ.get("OM_S3_ENDPOINT") or "").rstrip("/")
+S3_BUCKET = os.environ.get("OM_S3_BUCKET", "")
+S3_REGION = os.environ.get("OM_S3_REGION", "auto")
+S3_ACCESS_KEY = os.environ.get("OM_S3_ACCESS_KEY", "")
+S3_SECRET_KEY = os.environ.get("OM_S3_SECRET_KEY", "")
+S3_PREFIX = os.environ.get("OM_S3_PREFIX", "cabina/backups")
+S3_FORCE_PATH_STYLE = os.environ.get("OM_S3_FORCE_PATH_STYLE", "1" if "supabase.co" in S3_ENDPOINT else "0") == "1"
+BACKUP_LOCAL_KEEP = int(os.environ.get("OM_BACKUP_LOCAL_KEEP", "2"))
+BACKUP_REMOTE_KEEP = int(os.environ.get("OM_BACKUP_REMOTE_KEEP", str(BACKUP_KEEP)))
 
 DEEPSEEK_BASE_URL = "https://api.deepseek.com/anthropic"
 

@@ -18,7 +18,7 @@ from api import config, db, schemas_io
 from api.deps import COOKIE_NAME, AuthContext, current_auth, get_db, require_admin, require_producer, require_viewer
 from api.errors import ApiError
 from api.events import broker
-from api.services import alerts, backups, board, chat, costs, gates, jobs, media, metrics, pipelines, projects, providers, scenes, settings, users
+from api.services import alerts, backups, board, chat, costs, gates, jobs, media, metrics, pipelines, projects, providers, remote_storage, scenes, settings, users
 from api.services import chat as chat_service
 
 router = APIRouter(prefix="/api")
@@ -281,9 +281,18 @@ def list_backups(_: AuthContext = Depends(require_admin)) -> dict[str, Any]:
 
 
 @router.get("/admin/backups/{name}")
-def download_backup(name: str, _: AuthContext = Depends(require_admin)) -> FileResponse:
-    path = backups._backup_path(name)
-    return FileResponse(path, filename=name, media_type="application/gzip")
+def download_backup(name: str, _: AuthContext = Depends(require_admin)):
+    local = backups.local_backup_path(name)
+    if local is not None:
+        return FileResponse(local, filename=name, media_type="application/gzip")
+    if not remote_storage.enabled():
+        raise ApiError(404, "not_found", "Backup not found")
+    key = remote_storage.key_for(name)
+    length = remote_storage.size(key)
+    headers = {"Content-Disposition": f'attachment; filename="{name}"'}
+    if length:
+        headers["Content-Length"] = str(length)
+    return StreamingResponse(remote_storage.stream(key), media_type="application/gzip", headers=headers)
 
 
 @router.post("/admin/backups/{name}/verify")

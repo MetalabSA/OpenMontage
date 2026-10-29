@@ -78,6 +78,9 @@ RUN pip install --no-cache-dir -r requirements.txt piper-tts yt-dlp
 RUN pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu torch torchaudio \
     && pip install --no-cache-dir whisperx
 
+# --- Remote backups (Cloudflare R2 / Supabase Storage, S3-compatible) ------
+RUN pip install --no-cache-dir boto3
+
 # --- Application -----------------------------------------------------------
 COPY . .
 RUN chmod +x deploy/entrypoint.sh \
