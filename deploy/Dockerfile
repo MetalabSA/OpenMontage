@@ -25,6 +25,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ffmpeg \
       git \
+      libsndfile1 \
       curl \
       ca-certificates \
       xz-utils \
@@ -71,7 +72,11 @@ WORKDIR /app
 
 # --- Python tools ----------------------------------------------------------
 COPY requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt piper-tts
+RUN pip install --no-cache-dir -r requirements.txt piper-tts yt-dlp
+
+# --- WhisperX (CPU) for transcription/alignment ---------------------------
+RUN pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu torch torchaudio \
+    && pip install --no-cache-dir whisperx
 
 # --- Application -----------------------------------------------------------
 COPY . .
