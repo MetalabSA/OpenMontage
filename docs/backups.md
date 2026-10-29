@@ -89,3 +89,39 @@ El filesystem (`projects/`) no se migra: sigue siendo la fuente de verdad creati
 - [x] Runbook de restore y plan de migración a Postgres.
 - [ ] Prueba de restore real sobre el volumen vivo (requiere ventana de mantenimiento).
 - [ ] Envío de backups a storage externo (S3/R2) y cifrado con age/gpg.
+
+## 9. Backups remotos (R2 / Supabase)
+
+El servicio sube cada backup a un bucket S3-compatible y conserva solo 2 copias locales.
+
+Variables en `openmontage-studio`:
+
+| Variable | R2 | Supabase |
+|---|---|---|
+| `OM_S3_ENDPOINT` | `https://<account>.r2.cloudflarestorage.com` | `https://<ref>.storage.supabase.co/storage/v1/s3` |
+| `OM_S3_BUCKET` | bucket privado | bucket privado |
+| `OM_S3_REGION` | `auto` | región del proyecto |
+| `OM_S3_ACCESS_KEY` | token R2 (Access Key ID) | S3 Access Key |
+| `OM_S3_SECRET_KEY` | token R2 (Secret) | S3 Secret |
+| `OM_S3_PREFIX` | `cabina/backups` | `cabina/backups` |
+| `OM_S3_FORCE_PATH_STYLE` | `0` | `1` |
+| `OM_BACKUP_LOCAL_KEEP` | `2` | `2` |
+| `OM_BACKUP_REMOTE_KEEP` | `7` | `7` |
+
+- Bucket **privado**; no hace falta CORS.
+- R2: crear un API token limitado al bucket (Object Read & Write).
+- Supabase: Storage → S3 → generar Access Key/Secret; endpoint y región en la misma pantalla.
+- Si la subida falla, el backup local sigue válido y queda `remote_error` en la metadata.
+- `GET /api/admin/backups` mezcla locales y remotos; `verify` descarga del remoto si no está local; `download` hace streaming desde S3.
+- La retención remota borra los más viejos de `OM_BACKUP_REMOTE_KEEP`; la local conserva 2.
+
+Verificación rápida:
+
+```bash
+curl -s -X POST -H "Authorization: Bearer $TOKEN" \
+  https://studio.metalabia.com/api/admin/backups | jq
+curl -s -H "Authorization: Bearer $TOKEN" \
+  https://studio.metalabia.com/api/admin/backups | jq '.remote_enabled,.remote_bucket'
+```
+
+Estado al 2026-10-29: **sin credenciales cargadas** (`remote_enabled=false`). Los backups siguen locales hasta configurar el bucket.
