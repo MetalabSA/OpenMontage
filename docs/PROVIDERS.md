@@ -65,3 +65,41 @@ Para forzar un proveedor/modelo, el agente puede pasar el slug en `model`; el pi
 - `/settings` las muestra enmascaradas (`source=env`).
 - Si se cargan desde Settings, `_engine_env` las inyecta al subproceso del agente.
 - Rotarlas implica actualizar el env y reiniciar el servicio.
+
+## 7. Voz y música (KIE)
+
+### TTS — `kie_tts`
+
+- Modelo: `google/gemini-3-1-flash-tts`
+- Salida: WAV 16-bit PCM, 24 kHz, mono.
+- Voces: Zephyr, Puck, Fenrir, Kore, etc.; estilo, acento y ritmo configurables.
+- Prueba real: 0,23 créditos (~$0,001) por una frase corta.
+- Uso: `{"text": "...", "voice_name": "Zephyr", "accent": "Neutral", "style": "Newscaster"}`.
+
+### Música — `kie_music` (Suno)
+
+- Modelo: `ai-music-api/generate`; modelos Suno `V6`, `V6_MINI`, `V6_WILD`.
+- Prueba real: 12 créditos (~$0,06) por una pista instrumental de 73 s (MP3 48 kHz estéreo).
+- Uso: `{"prompt": "...", "style": "cinematic ambient", "instrumental": true, "model": "V6"}`.
+
+Con esto `music_generation` pasa de 0 a 1/7 y `tts` de 1 a 2/19.
+
+## 8. Ingesta y transcripción
+
+- `yt-dlp` instalado en la imagen → `source_ingest 1/1`.
+- `whisperx 3.8.6` + faster-whisper + torch CPU → `analysis 9/14` (ffmpeg, ffprobe, local, multi, transformers, whisperx).
+- La diarización de WhisperX requiere un token de Hugging Face y aceptar los modelos de pyannote; la transcripción/aliniación funciona sin token.
+- `pygments` quedó instalado como dependencia → `graphics 2/3` (Mermaid + Pygments); falta Manim.
+
+## 9. Stock sin claves
+
+Pexels pausó nuevas API keys, Pixabay no está emitiendo y Unsplash pide requisitos. No es bloqueante: el repo ya trae fuentes de stock sin clave (`tools/video/stock_sources/`):
+
+- Wikimedia Commons, Internet Archive, NASA, ESA, JAXA, NOAA, NARA, Library of Congress
+- Coverr, Mixkit, Videvo, Dareful, Pond5 Public Domain
+
+Se usan vía `direct_clip_search` / `clip_acquisition`. Para imágenes generadas, Higgsfield/KIE cubren el resto.
+
+## 10. Estado del disco
+
+La imagen creció con WhisperX/torch (CUDA libs incluidas). Al 2026-10-29: **80 % usado, 19 GB libres**. Recomendación: mover backups/renders a R2/Supabase o ampliar el volumen; el detalle está en `backups.md`.
