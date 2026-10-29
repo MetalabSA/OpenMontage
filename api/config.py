@@ -72,6 +72,8 @@ PROVIDER_ENV = {
     "pexels": "PEXELS_API_KEY",
     "pixabay": "PIXABAY_API_KEY",
     "unsplash": "UNSPLASH_ACCESS_KEY",
+    "higgsfield": "HF_KEY",
+    "kie": "KIE_API_KEY",
 }
 
 STARTED_AT = time.time()

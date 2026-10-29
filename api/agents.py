@@ -200,6 +200,16 @@ def _engine_env(conn, model: str) -> dict[str, str]:
     else:
         env["ANTHROPIC_API_KEY"] = key
         env["ANTHROPIC_MODEL"] = model
+    # Expose every provider key saved from Settings to the tool subprocess.
+    try:
+        from api.services import settings
+
+        for provider, value in settings._stored_providers(conn).items():
+            env_name = config.PROVIDER_ENV.get(provider)
+            if env_name and value:
+                env[env_name] = value
+    except Exception:
+        pass
     env.setdefault("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "1")
     return env
 
